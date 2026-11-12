@@ -35,3 +35,25 @@ def test_public_smoke_rejects_old_service_version(tmp_path,monkeypatch):
         'request_id':'2b963b44-605b-490a-bf65-a6414021ee15','schema_version':'1.0','sample':True,
         'message':'Hello TUTOR','tutor_version':'tutor-old','reply':'sample'}))
     with pytest.raises(AssertionError): smoke.main()
+
+
+def test_packaged_source_contains_runtime_and_excludes_local_artifacts(monkeypatch, tmp_path):
+    from zipfile import ZipFile
+    package = load('package-source')
+    folders = ['service', 'src/archreactor_tutor', 'tutor_contract', 'proto', 'tests', 'scripts', 'infrastructure']
+    for folder in folders:
+        (tmp_path / folder).mkdir(parents=True, exist_ok=True)
+    (tmp_path / 'src/archreactor_tutor/service.py').write_text('# runtime')
+    for file in ['Dockerfile', '.dockerignore', 'requirements.txt', 'requirements-dev.txt', 'requirements-deploy.txt', 'pytest.ini', 'pyproject.toml']:
+        (tmp_path / file).write_text('fixture')
+    (tmp_path / 'artifacts').mkdir()
+    (tmp_path / 'artifacts/private.json').write_text('excluded')
+    (tmp_path / 'src/generated.egg-info').mkdir()
+    (tmp_path / 'src/generated.egg-info/PKG-INFO').write_text('generated metadata')
+    monkeypatch.setattr(package, 'ROOT', tmp_path)
+    package.main()
+    with ZipFile(tmp_path / 'dist/source.zip') as archive:
+        assert 'src/archreactor_tutor/service.py' in archive.namelist()
+        assert 'pyproject.toml' in archive.namelist()
+        assert not any(name.startswith('artifacts/') for name in archive.namelist())
+        assert not any('.egg-info' in name for name in archive.namelist())

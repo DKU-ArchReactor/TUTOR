@@ -3,6 +3,9 @@ WORKDIR /tutor
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt && useradd --uid 10001 --create-home tutor
+COPY pyproject.toml ./
+COPY src ./src
+RUN pip install --no-cache-dir --no-deps .
 COPY service ./service
 COPY tutor_contract ./tutor_contract
 RUN chmod -R a+rX /tutor

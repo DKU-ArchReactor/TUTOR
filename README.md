@@ -1,6 +1,6 @@
 # ArchReactor TUTOR
 
-독립 ECS Fargate gRPC 서비스. 현재는 **연결 확인용 Sample RPC**이며 AI 모델 호출이나 실제 코드 해설은 없습니다.
+독립 ECS Fargate gRPC 서비스입니다. 기존 Sample 연결 확인을 유지하고, C/RV32IM 해설과 ELF 기반 C–ASM 매핑, 실행 이벤트·값 변화 분석을 추가합니다. 외부 AI 모델을 호출하거나 CPU 실행 상태를 변경하지 않습니다.
 
 ## 요청 경로
 
@@ -9,7 +9,7 @@
 요청: `{"message":"Hello TUTOR"}`. 공백만 있는 입력 금지, 최대 256자/1024 UTF-8 bytes.
 응답: `request_id`, `schema_version`, `tutor_version`, `message`, `reply`, `sample: true`.
 샘플은 인증 없이 호출 가능하며 코드 실행, DB 접근, 모델 호출을 하지 않습니다.
-실제 튜터 기능은 별도 RPC와 인증·소유권·사용량 정책을 설계하여 추가합니다.
+실제 해설은 `Explain`, `Compile`, `Analyze` RPC로 제공합니다. 인증·소유권 검증은 기존 BE가 수행하며 FE는 기존 REST 경로를 사용합니다. [연결 계약과 적용 순서](docs/integration.md)를 참고하세요.
 
 ## 로컬 실행
 
@@ -23,6 +23,18 @@ python -m service.server
 # 다른 터미널
 python scripts/smoke.py 127.0.0.1:50051
 ```
+
+`requirements-dev.txt`가 해설 패키지도 editable 방식으로 설치합니다.
+Windows에서는 `.venv\\Scripts\\python.exe -m ...` 형태로 같은 명령을 실행할 수 있습니다.
+배포된 BE에서 시연 코드를 컴파일·실행하고 로컬 gRPC로 분석하려면 다음을 사용합니다.
+
+```sh
+python scripts/run_demos.py
+```
+
+이 명령은 임시 로컬 gRPC 서버를 자동 기동·종료합니다. 10개 예제를 single/pipeline으로 실행해 20건을 검증합니다.
+`--target HOST:50051`을 지정하면 이미 실행 중인 서버를 검사합니다. 토큰과 서명 URL은 저장하지 않으며 결과는 Git에서 제외한 `artifacts/`에 생성합니다.
+샘플과 새 RPC의 컨테이너 검사에는 `scripts/smoke.py`를 사용합니다.
 
 BE 설정: `TUTOR_GRPC_TARGET=127.0.0.1:50051`, `TUTOR_GRPC_TIMEOUT_SECONDS=5`.
 
@@ -49,7 +61,7 @@ python scripts/check-contract.py
 - 50051은 BE SG만 허용. 공인 IPv4는 이미지/로그의 외부 HTTPS 통신용. ALB/NAT 추가 없음.
 - 내부 h2c gRPC이며 TLS/mTLS는 미구성. 단일 AZ/태스크이므로 고가용성 구성은 아님.
 - 비root/read-only 컨테이너, gRPC health, 5초 graceful shutdown.
-- 샘플 런타임은 AWS API 권한·비밀값 없음.
+- 해설 런타임은 AWS API 권한·비밀값 없음.
 
 최초 구축: build 스택 생성 -> CodeBuild 이미지 빌드 -> ECR digest를 service 스택 Image에 지정. VpcId, SubnetId, BackendSecurityGroup, NamespaceId는 기존 환경에서 조회해 전달. CloudFormation change set을 검사한 후 실행합니다.
 
