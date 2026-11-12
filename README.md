@@ -77,7 +77,9 @@ ECS health와 실제 image digest를 확인한 뒤 BE REST 응답의 `tutor_vers
 관리자가 최초 1회 `infrastructure/github-oidc.json`을 별도 CloudFormation 스택으로 배포합니다.
 기존 GitHub OIDC provider와 TUTOR의 bucket, build project, ECR, service stack,
 cluster/service/task family, execution role ARN을 매개변수로 전달합니다.
-역할은 이 저장소의 `develop`과 STS audience만 신뢰합니다. BE/CORE 배포 권한은 없습니다.
+역할은 이 저장소의 조직·저장소 고유 ID가 포함된 immutable OIDC subject, `develop`, STS audience만 신뢰합니다.
+이 저장소의 subject 형식은 `repo:DKU-ArchReactor@265494649/TUTOR@1451272949:ref:refs/heads/develop`입니다.
+이름만 포함한 과거 형식으로 되돌리면 인증이 실패합니다. [GitHub OIDC 문서](https://docs.github.com/en/actions/reference/security/oidc#immutable-subject-claims)를 참고하세요. BE/CORE 배포 권한은 없습니다.
 
 Repository Settings → Secrets and variables → Actions에 다음을 설정합니다.
 실제 운영 값은 소스에 커밋하지 않습니다. 장기 AWS 키는 사용하지 않습니다.

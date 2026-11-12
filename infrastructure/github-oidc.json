@@ -84,7 +84,7 @@
               "Condition": {
                 "StringEquals": {
                   "token.actions.githubusercontent.com:aud": "sts.amazonaws.com",
-                  "token.actions.githubusercontent.com:sub": "repo:DKU-ArchReactor/TUTOR:ref:refs/heads/develop"
+                  "token.actions.githubusercontent.com:sub": "repo:DKU-ArchReactor@265494649/TUTOR@1451272949:ref:refs/heads/develop"
                 }
               }
             }
