@@ -8,7 +8,7 @@ import time
 import uuid
 
 import boto3
-from bototutor.config import Config
+from botocore.config import Config
 
 ROOT = Path(__file__).resolve().parents[1]
 
