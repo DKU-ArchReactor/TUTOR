@@ -8,7 +8,7 @@ rule tutor_oidc_identity {
     Principal.Federated exists
     Principal.AWS !exists
     Condition.StringEquals."token.actions.githubusercontent.com:aud" == "sts.amazonaws.com"
-    Condition.StringEquals."token.actions.githubusercontent.com:sub" == "repo:DKU-ArchReactor/TUTOR:ref:refs/heads/develop"
+    Condition.StringEquals."token.actions.githubusercontent.com:sub" == "repo:DKU-ArchReactor@265494649/TUTOR@1451272949:ref:refs/heads/develop"
   }
   %role.ManagedPolicyArns !exists
   %role.Policies[*].PolicyDocument.Statement[*] {
