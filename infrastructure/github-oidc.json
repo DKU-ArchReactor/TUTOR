@@ -255,6 +255,23 @@
                       "iam:PassedToService": "ecs-tasks.amazonaws.com"
                     }
                   }
+                },
+                {
+                  "Sid": "ValidateExistingNetworkParameters",
+                  "Effect": "Allow",
+                  "Action": [
+                    "ec2:DescribeSubnets",
+                    "ec2:DescribeVpcs",
+                    "ec2:DescribeSecurityGroups"
+                  ],
+                  "Resource": "*",
+                  "Condition": {
+                    "StringEquals": {
+                      "aws:RequestedRegion": {
+                        "Ref": "AWS::Region"
+                      }
+                    }
+                  }
                 }
               ]
             }

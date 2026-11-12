@@ -104,3 +104,5 @@ Repository Settings → Secrets and variables → Actions에 다음을 설정합
 기본 브랜치 반영 전에도 로컬 `--rollback` 명령은 사용할 수 있습니다.
 배포 실패 시 ECS circuit breaker/CloudFormation rollback 상태를 확인하세요.
 배포 후 REST 검증만 실패한 경우에는 자동으로 되돌리지 않으므로 성공한 이전 digest로 복구합니다.
+
+CloudFormation은 이미지 갱신 때도 기존 VPC/Subnet/SecurityGroup 형식의 매개변수를 검증하므로, 배포 역할에는 배포 리전에 한정한 세 가지 EC2 Describe 조회 권한이 포함됩니다. 네트워크 변경 권한은 부여하지 않습니다.
