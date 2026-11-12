@@ -10,7 +10,7 @@ def main():
     for folder in ['service','tutor_contract','proto','tests','scripts','infrastructure']:
         files.extend(p for p in (ROOT/folder).rglob('*') if p.is_file()
             and '__pycache__' not in p.parts and p.suffix not in ('.pyc','.pyo'))
-    files.extend(ROOT/p for p in ['Dockerfile','.dockerignore','requirements.txt','requirements-dev.txt','pytest.ini'])
+    files.extend(ROOT/p for p in ['Dockerfile','.dockerignore','requirements.txt','requirements-dev.txt','requirements-deploy.txt','pytest.ini'])
     output=ROOT/'dist/source.zip'; output.parent.mkdir(exist_ok=True)
     with ZipFile(output,'w',ZIP_DEFLATED) as archive:
         for p in sorted(files):
