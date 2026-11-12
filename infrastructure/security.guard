@@ -1,0 +1,29 @@
+let groups = Resources.*[ Type == 'AWS::EC2::SecurityGroup' ]
+rule scoped_ingress when %groups !empty {
+  %groups.Properties.SecurityGroupIngress[*] {
+    SourceSecurityGroupId exists
+    CidrIp !exists
+    FromPort == 50051
+    ToPort == 50051
+  }
+}
+let tasks = Resources.*[ Type == 'AWS::ECS::TaskDefinition' ]
+rule isolated_container when %tasks !empty {
+  %tasks.Properties {
+    NetworkMode == 'awsvpc'
+    ContainerDefinitions[*] {
+      ReadonlyRootFilesystem == true
+      User == '10001'
+      HealthCheck exists
+      LogConfiguration.LogDriver == 'awslogs'
+    }
+  }
+}
+let repos = Resources.*[ Type == 'AWS::ECR::Repository' ]
+rule immutable_images when %repos !empty {
+  %repos.Properties {
+    ImageTagMutability == 'IMMUTABLE'
+    ImageScanningConfiguration.ScanOnPush == true
+    EncryptionConfiguration.EncryptionType == 'AES256'
+  }
+}

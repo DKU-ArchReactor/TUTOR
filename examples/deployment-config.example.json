@@ -1,0 +1,11 @@
+{
+  "account_id": "REPLACE_ME",
+  "region": "REPLACE_ME",
+  "profile": "REPLACE_ME",
+  "bucket": "REPLACE_ME",
+  "repository": "REPLACE_ME",
+  "stack": "REPLACE_ME",
+  "build_project": "REPLACE_ME",
+  "cluster": "REPLACE_ME",
+  "service": "REPLACE_ME"
+}
