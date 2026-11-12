@@ -64,4 +64,41 @@ python scripts/deploy.py --config dist/deployment-config.local.json
 python scripts/deploy.py --config dist/deployment-config.local.json --rollback sha256:<previous-digest>
 ```
 
-STS 계정 확인, 소스 패키징, CodeBuild 테스트/컨테이너 스모크, digest 배포, ECS health 검증을 수행합니다. BE/CORE는 재배포하지 않습니다. GitHub Actions는 테스트용이며 자동 배포는 미연결입니다.
+STS 계정 확인, 소스 패키징, CodeBuild 테스트/컨테이너 스모크, digest 배포, ECS health 검증을 수행합니다. BE/CORE는 재배포하지 않습니다.
+
+
+### GitHub Actions 자동 배포
+
+배포 트리거는 **`develop` push/PR 머지**입니다. 테스트 통과 후 전용 CodeBuild에서
+테스트·컨테이너 스모크·ECR push를 수행하고, 기존 서비스 스택의 Image만 digest로 변경합니다.
+ECS health와 실제 image digest를 확인한 뒤 BE REST 응답의 `tutor_version`이 이번 빌드와 같은지 검증합니다.
+배포는 순차 실행하며 진행 중인 배포를 취소하지 않습니다. PR과 다른 브랜치는 테스트만 실행합니다.
+
+관리자가 최초 1회 `infrastructure/github-oidc.json`을 별도 CloudFormation 스택으로 배포합니다.
+기존 GitHub OIDC provider와 TUTOR의 bucket, build project, ECR, service stack,
+cluster/service/task family, execution role ARN을 매개변수로 전달합니다.
+역할은 이 저장소의 `develop`과 STS audience만 신뢰합니다. BE/CORE 배포 권한은 없습니다.
+
+Repository Settings → Secrets and variables → Actions에 다음을 설정합니다.
+실제 운영 값은 소스에 커밋하지 않습니다. 장기 AWS 키는 사용하지 않습니다.
+
+| 이름 | 저장 위치 | 값 |
+|---|---|---|
+| `AWS_ROLE_ARN` | Secrets | OIDC 스택의 RoleArn 출력 |
+| `AWS_REGION` | Variables | `ap-northeast-2` |
+| `TUTOR_DEPLOYMENT_CONFIG` | Secrets | 예제 deployment-config JSON에서 `profile`을 제외한 실제 값 |
+| `BE_BASE_URL` | Variables | BE 공개 HTTPS 기본 주소 |
+
+운영 설정은 비밀번호가 아니지만 공개 로그 노출을 막기 위해 Secrets에 저장합니다. CI는 각 운영 식별자도 로그에서 마스킹합니다. 업로드하는 기록은 버전과 현재/이전 digest뿐이며,
+계정·내부 이름이 담긴 설정과 원본 배포 기록은 artifact로 게시하지 않습니다.
+로컬 실행은 계속 명시적인 AWS profile을 요구합니다.
+
+`workflow_dispatch`도 정의되어 있습니다. GitHub의 수동 실행 버튼은 워크플로 파일이
+기본 브랜치에도 있어야 나타납니다. 현재 기본 브랜치가 `main`이면 해당 파일을 `main`에도
+반영한 후 **실행 대상 `develop`**을 선택하세요. 그 전에는 `develop` push 자동 배포와
+기존 실행의 Re-run jobs를 사용할 수 있습니다. 기본 브랜치는 이 변경에서 바꾸지 않습니다.
+
+수동 실행의 `rollback_digest`에 성공한 배포 기록의 이전 digest를 입력하면 재빌드 없이 복구합니다.
+기본 브랜치 반영 전에도 로컬 `--rollback` 명령은 사용할 수 있습니다.
+배포 실패 시 ECS circuit breaker/CloudFormation rollback 상태를 확인하세요.
+배포 후 REST 검증만 실패한 경우에는 자동으로 되돌리지 않으므로 성공한 이전 digest로 복구합니다.
