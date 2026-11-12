@@ -1,0 +1,12 @@
+[
+  {"id":"arithmetic","title":"부호 있는 나눗셈과 나머지","file":"arithmetic.c","lang":"c","a0":-32},
+  {"id":"branches","title":"if / else if / else의 실제 분기","file":"branches.c","lang":"c","a0":111},
+  {"id":"loop_control","title":"반복문·continue·break","file":"loop_control.c","lang":"c","a0":13},
+  {"id":"switch_call","title":"switch·case·함수 호출","file":"switch_call.c","lang":"c","a0":15},
+  {"id":"signed_load","title":"LB와 LBU의 부호 확장 차이","file":"signed_load.c","lang":"c","a0":254},
+  {"id":"recursion","title":"재귀 호출·스택·복귀","file":"recursion.c","lang":"c","a0":10},
+  {"id":"pointer_memory","title":"배열·포인터·Load/Store","file":"pointer_memory.c","lang":"c","a0":25},
+  {"id":"misaligned","title":"정렬되지 않은 접근 오류","file":"misaligned.s","lang":"asm","status":"SIMULATION_ERROR"},
+  {"id":"cycle_limit","title":"무한 반복과 사이클 제한","file":"cycle_limit.s","lang":"asm","status":"CYCLE_LIMIT","max_cycles":20},
+  {"id":"divide_zero","title":"RV32M의 0 나눗셈 규약","file":"divide_zero.s","lang":"asm","a0":-1,"a1":19}
+]

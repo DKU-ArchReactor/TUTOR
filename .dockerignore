@@ -1,6 +1,9 @@
 .git
 .venv
 dist
+artifacts
+build
+**/*.egg-info
 .env*
 **/__pycache__
 .pytest_cache
