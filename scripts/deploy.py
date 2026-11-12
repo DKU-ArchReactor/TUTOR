@@ -1,6 +1,8 @@
 """TUTOR-only build/deploy/rollback. Infrastructure changes use separate reviewed templates."""
 import argparse
 import json
+import os
+import re
 from pathlib import Path
 import subprocess
 import sys
@@ -27,17 +29,30 @@ def wait_until(read, accept, fail, timeout=1800):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--github-actions', action='store_true', help='Use short-lived OIDC credentials only on the develop deployment workflow')
     parser.add_argument('--rollback', metavar='SHA256_DIGEST', help='Deploy a previous verified image digest without building')
     parser.add_argument('--config', required=True, type=Path, help='Private deployment configuration JSON (never commit actual values)')
     args = parser.parse_args()
     config_values = json.loads(args.config.read_text())
-    required = ['account_id', 'region', 'profile', 'bucket', 'repository', 'stack', 'build_project', 'cluster', 'service']
+    required = ['account_id', 'region', 'bucket', 'repository', 'stack', 'build_project', 'cluster', 'service']
+    if not args.github_actions:
+        required.append('profile')
     if any(not isinstance(config_values.get(k), str) or not config_values[k] for k in required):
         raise ValueError('Deployment config must contain nonempty strings: ' + ', '.join(required))
     ACCOUNT, REGION = config_values['account_id'], config_values['region']
     BUCKET, REPO, STACK = config_values['bucket'], config_values['repository'], config_values['stack']
-    # Always explicit: configure this named profile on each teammate workstation.
-    session = boto3.Session(profile_name=config_values['profile'], region_name=REGION)
+    if args.github_actions:
+        if (os.environ.get('GITHUB_ACTIONS') != 'true'
+                or os.environ.get('GITHUB_REPOSITORY') != 'DKU-ArchReactor/TUTOR'
+                or os.environ.get('GITHUB_REF') != 'refs/heads/develop'
+                or os.environ.get('GITHUB_EVENT_NAME') not in ('push', 'workflow_dispatch')):
+            raise RuntimeError('GitHub deployment requires the TUTOR develop branch')
+        if not all(os.environ.get(k) for k in ('AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY', 'AWS_SESSION_TOKEN')):
+            raise RuntimeError('GitHub deployment requires temporary AWS credentials')
+        session = boto3.Session(region_name=REGION)
+    else:
+        # Local deployments always use an explicitly configured named profile.
+        session = boto3.Session(profile_name=config_values['profile'], region_name=REGION)
     config = Config(retries={'mode':'standard', 'max_attempts':4}, connect_timeout=5, read_timeout=30)
     def client(name):
         return session.client(name, config=config)
@@ -50,8 +65,13 @@ def main():
     previous = next(p['ParameterValue'] for p in stack['Parameters'] if p['ParameterKey'] == 'Image')
     if args.rollback:
         digest = args.rollback
-        ecr.describe_images(repositoryName=REPO, imageIds=[{'imageDigest':digest}])
-        version = 'rollback'
+        if not re.fullmatch(r'sha256:[0-9a-f]{64}', digest):
+            raise ValueError('Rollback requires a sha256 image digest')
+        details = ecr.describe_images(repositoryName=REPO, imageIds=[{'imageDigest':digest}])['imageDetails'][0]
+        tags = [tag for tag in details.get('imageTags', []) if re.fullmatch(r'tutor-[0-9a-f]{16}', tag)]
+        if len(tags) != 1:
+            raise RuntimeError('Rollback image must have exactly one TUTOR build version tag')
+        version = tags[0]
     else:
         package = json.loads(subprocess.check_output([sys.executable, 'scripts/package-source.py'], cwd=ROOT, text=True))
         tag, version = package['tag'], package['tag']
@@ -69,6 +89,7 @@ def main():
     (ROOT/'dist').mkdir(exist_ok=True)
     record_path = ROOT/'dist'/('deployment-' + str(int(time.time())) + '.json')
     record_path.write_text(json.dumps(record, indent=2))
+    (ROOT/'dist/deployment.json').write_text(json.dumps(record, indent=2))
     if image != previous:
         name = 'image-' + uuid.uuid4().hex[:12]
         parameters = [{'ParameterKey':p['ParameterKey'], **({'ParameterValue':image} if p['ParameterKey']=='Image' else {'UsePreviousValue':True})} for p in stack['Parameters']]
@@ -81,7 +102,7 @@ def main():
             resource = item['ResourceChange']
             if resource['LogicalResourceId'] not in ('Task','Service') or resource['Action'] != 'Modify':
                 raise RuntimeError('Unexpected infrastructure change; inspect change set manually')
-        print(json.dumps({'changes':[c['ResourceChange'] for c in change['Changes']]}), flush=True)
+        print('Validated image-only change set', flush=True)
         cfn.execute_change_set(StackName=STACK,ChangeSetName=name)
         wait_until(lambda:cfn.describe_stacks(StackName=STACK)['Stacks'][0],
             lambda s:s['StackStatus']=='UPDATE_COMPLETE',
@@ -94,7 +115,7 @@ def main():
     if not actual or not all(t['healthStatus']=='HEALTHY' and t['taskDefinitionArn']==service['taskDefinition']
                              and t['containers'][0].get('imageDigest')==digest for t in actual):
         raise RuntimeError('Deployed image or gRPC health mismatch')
-    print(json.dumps({'status':'HEALTHY', **record, 'record':str(record_path)}))
+    print(json.dumps({'status':'HEALTHY', 'version':version, 'digest':digest}))
 
 
 if __name__ == '__main__':

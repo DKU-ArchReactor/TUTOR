@@ -1,0 +1,90 @@
+name: Deploy TUTOR to ECS
+
+on:
+  push:
+    branches: [develop]
+  workflow_dispatch:
+    inputs:
+      rollback_digest:
+        description: 'Optional previous sha256 digest to restore'
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tutor-production-deployment
+  cancel-in-progress: false
+
+jobs:
+  test:
+    uses: ./.github/workflows/test.yml
+
+  deploy:
+    if: github.repository == 'DKU-ArchReactor/TUTOR' && github.ref == 'refs/heads/develop'
+    needs: test
+    runs-on: ubuntu-24.04
+    timeout-minutes: 55
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      AWS_REGION: ${{ vars.AWS_REGION }}
+      AWS_EC2_METADATA_DISABLED: 'true'
+      DEPLOYMENT_CONFIG: ${{ secrets.TUTOR_DEPLOYMENT_CONFIG }}
+      DEPLOY_ROLE_ARN: ${{ secrets.AWS_ROLE_ARN }}
+      BE_BASE_URL: ${{ vars.BE_BASE_URL }}
+      ROLLBACK_DIGEST: ${{ inputs.rollback_digest }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+      - name: Validate and mask deployment settings
+        id: config
+        run: python scripts/prepare-ci-config.py
+      - name: Install deployment dependencies
+        run: python -m pip install -r requirements-deploy.txt
+      - name: Authenticate with GitHub OIDC
+        uses: aws-actions/configure-aws-credentials@v5
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+          allowed-account-ids: ${{ steps.config.outputs.account_id }}
+          mask-aws-account-id: true
+          role-session-name: tutor-${{ github.run_id }}
+          role-duration-seconds: 3600
+      - name: Build and deploy TUTOR image
+        run: |
+          args=(--github-actions --config dist/deployment-config.ci.json)
+          if [ -n "$ROLLBACK_DIGEST" ]; then
+            args+=(--rollback "$ROLLBACK_DIGEST")
+          fi
+          python scripts/deploy.py "${args[@]}"
+      - name: Verify BE to TUTOR integration
+        run: python scripts/verify-public-api.py --base-url "$BE_BASE_URL" --deployment-record dist/deployment.json
+      - name: Publish sanitized deployment record
+        if: always()
+        run: |
+          python - <<'PYTHON'
+          import json, os
+          from pathlib import Path
+          record = Path('dist/deployment.json')
+          if record.exists():
+              data = json.loads(record.read_text())
+              safe = {'version': data['version'], 'digest': data['image'].split('@')[-1],
+                      'previous_digest': data['previous_image'].split('@')[-1]}
+              Path('dist/deployment-summary.json').write_text(json.dumps(safe, indent=2))
+              with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as stream:
+                  stream.write('\n```json\n' + json.dumps(safe, indent=2) + '\n```\n')
+          PYTHON
+      - name: Keep sanitized rollback record
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tutor-deployment-${{ github.run_id }}-${{ github.run_attempt }}
+          path: dist/deployment-summary.json
+          if-no-files-found: ignore
+          retention-days: 30

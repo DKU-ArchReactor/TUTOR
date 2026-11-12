@@ -1,0 +1,277 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Description": "GitHub OIDC deployment role for the TUTOR develop branch and existing TUTOR resources only.",
+  "Metadata": {
+    "AWSToolsMetrics": {
+      "AWSAgentToolkit": "aws-cloudformation@3"
+    }
+  },
+  "Parameters": {
+    "SourceBucket": {
+      "Type": "String",
+      "MinLength": 1,
+      "Description": "Existing private source archive bucket"
+    },
+    "BuildProjectName": {
+      "Type": "String",
+      "MinLength": 1,
+      "Description": "Existing TUTOR CodeBuild project",
+      "AllowedPattern": "[A-Za-z][A-Za-z0-9_-]*"
+    },
+    "RepositoryName": {
+      "Type": "String",
+      "MinLength": 1,
+      "Description": "Existing TUTOR ECR repository",
+      "AllowedPattern": "[a-z0-9]+(?:[._/-][a-z0-9]+)*"
+    },
+    "ServiceStackName": {
+      "Type": "String",
+      "MinLength": 1,
+      "Description": "Existing TUTOR CloudFormation service stack",
+      "AllowedPattern": "[A-Za-z][A-Za-z0-9_-]*"
+    },
+    "ClusterName": {
+      "Type": "String",
+      "MinLength": 1,
+      "Description": "Existing TUTOR ECS cluster",
+      "AllowedPattern": "[A-Za-z][A-Za-z0-9_-]*"
+    },
+    "ServiceName": {
+      "Type": "String",
+      "MinLength": 1,
+      "Description": "Existing TUTOR ECS service",
+      "AllowedPattern": "[A-Za-z][A-Za-z0-9_-]*"
+    },
+    "TaskFamily": {
+      "Type": "String",
+      "MinLength": 1,
+      "Description": "Existing TUTOR task definition family",
+      "AllowedPattern": "[A-Za-z][A-Za-z0-9_-]*"
+    },
+    "ExecutionRoleArn": {
+      "Type": "String",
+      "MinLength": 1,
+      "Description": "Existing TUTOR task execution role ARN",
+      "AllowedPattern": "arn:aws:iam::[0-9]{12}:role/[A-Za-z0-9+=,.@_/-]+"
+    }
+  },
+  "Resources": {
+    "GitHubDeployRole": {
+      "Type": "AWS::IAM::Role",
+      "Metadata": {
+        "com.aws.cloudformation.Context": {
+          "why": "Short-lived branch-scoped deployment credentials; keep existing image build and CloudFormation rollout",
+          "must": [
+            "Trust only TUTOR develop with the STS audience",
+            "No IAM mutation, secret reads, BE deployment, or network mutation permissions",
+            "Pass only the existing TUTOR execution role to ECS tasks"
+          ]
+        }
+      },
+      "Properties": {
+        "MaxSessionDuration": 3600,
+        "AssumeRolePolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Principal": {
+                "Federated": {
+                  "Fn::Sub": "arn:${AWS::Partition}:iam::${AWS::AccountId}:oidc-provider/token.actions.githubusercontent.com"
+                }
+              },
+              "Action": "sts:AssumeRoleWithWebIdentity",
+              "Condition": {
+                "StringEquals": {
+                  "token.actions.githubusercontent.com:aud": "sts.amazonaws.com",
+                  "token.actions.githubusercontent.com:sub": "repo:DKU-ArchReactor/TUTOR:ref:refs/heads/develop"
+                }
+              }
+            }
+          ]
+        },
+        "Policies": [
+          {
+            "PolicyName": "tutor-deployment",
+            "PolicyDocument": {
+              "Version": "2012-10-17",
+              "Statement": [
+                {
+                  "Sid": "UploadTutorSource",
+                  "Effect": "Allow",
+                  "Action": [
+                    "s3:PutObject",
+                    "s3:AbortMultipartUpload"
+                  ],
+                  "Resource": {
+                    "Fn::Sub": "arn:${AWS::Partition}:s3:::${SourceBucket}/tutor-source/*"
+                  }
+                },
+                {
+                  "Sid": "BuildTutor",
+                  "Effect": "Allow",
+                  "Action": [
+                    "codebuild:StartBuild",
+                    "codebuild:BatchGetBuilds"
+                  ],
+                  "Resource": {
+                    "Fn::Sub": "arn:${AWS::Partition}:codebuild:${AWS::Region}:${AWS::AccountId}:project/${BuildProjectName}"
+                  },
+                  "Condition": {
+                    "StringEquals": {
+                      "aws:RequestedRegion": {
+                        "Ref": "AWS::Region"
+                      }
+                    }
+                  }
+                },
+                {
+                  "Sid": "ReadTutorImages",
+                  "Effect": "Allow",
+                  "Action": "ecr:DescribeImages",
+                  "Resource": {
+                    "Fn::Sub": "arn:${AWS::Partition}:ecr:${AWS::Region}:${AWS::AccountId}:repository/${RepositoryName}"
+                  },
+                  "Condition": {
+                    "StringEquals": {
+                      "aws:RequestedRegion": {
+                        "Ref": "AWS::Region"
+                      }
+                    }
+                  }
+                },
+                {
+                  "Sid": "UpdateTutorStack",
+                  "Effect": "Allow",
+                  "Action": [
+                    "cloudformation:DescribeStacks",
+                    "cloudformation:CreateChangeSet",
+                    "cloudformation:DescribeChangeSet",
+                    "cloudformation:ExecuteChangeSet"
+                  ],
+                  "Resource": {
+                    "Fn::Sub": "arn:${AWS::Partition}:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/${ServiceStackName}/*"
+                  },
+                  "Condition": {
+                    "StringEquals": {
+                      "aws:RequestedRegion": {
+                        "Ref": "AWS::Region"
+                      }
+                    }
+                  }
+                },
+                {
+                  "Sid": "ManageTutorService",
+                  "Effect": "Allow",
+                  "Action": [
+                    "ecs:DescribeServices",
+                    "ecs:UpdateService",
+                    "ecs:ListTagsForResource"
+                  ],
+                  "Resource": {
+                    "Fn::Sub": "arn:${AWS::Partition}:ecs:${AWS::Region}:${AWS::AccountId}:service/${ClusterName}/${ServiceName}"
+                  },
+                  "Condition": {
+                    "StringEquals": {
+                      "aws:RequestedRegion": {
+                        "Ref": "AWS::Region"
+                      }
+                    }
+                  }
+                },
+                {
+                  "Sid": "DescribeTutorTasks",
+                  "Effect": "Allow",
+                  "Action": "ecs:DescribeTasks",
+                  "Resource": {
+                    "Fn::Sub": "arn:${AWS::Partition}:ecs:${AWS::Region}:${AWS::AccountId}:task/${ClusterName}/*"
+                  },
+                  "Condition": {
+                    "StringEquals": {
+                      "aws:RequestedRegion": {
+                        "Ref": "AWS::Region"
+                      }
+                    }
+                  }
+                },
+                {
+                  "Sid": "ListTutorTasks",
+                  "Effect": "Allow",
+                  "Action": "ecs:ListTasks",
+                  "Resource": "*",
+                  "Condition": {
+                    "ArnEquals": {
+                      "ecs:cluster": {
+                        "Fn::Sub": "arn:${AWS::Partition}:ecs:${AWS::Region}:${AWS::AccountId}:cluster/${ClusterName}"
+                      }
+                    }
+                  }
+                },
+                {
+                  "Sid": "TaskDefinitionReadAndCleanup",
+                  "Effect": "Allow",
+                  "Action": [
+                    "ecs:DeregisterTaskDefinition",
+                    "ecs:DescribeTaskDefinition"
+                  ],
+                  "Resource": "*",
+                  "Condition": {
+                    "StringEquals": {
+                      "aws:RequestedRegion": {
+                        "Ref": "AWS::Region"
+                      }
+                    }
+                  }
+                },
+                {
+                  "Sid": "ManageTutorRevisions",
+                  "Effect": "Allow",
+                  "Action": [
+                    "ecs:RegisterTaskDefinition",
+                    "ecs:TagResource",
+                    "ecs:UntagResource",
+                    "ecs:ListTagsForResource"
+                  ],
+                  "Resource": {
+                    "Fn::Sub": "arn:${AWS::Partition}:ecs:${AWS::Region}:${AWS::AccountId}:task-definition/${TaskFamily}:*"
+                  },
+                  "Condition": {
+                    "StringEquals": {
+                      "aws:RequestedRegion": {
+                        "Ref": "AWS::Region"
+                      }
+                    }
+                  }
+                },
+                {
+                  "Sid": "PassTutorExecutionRole",
+                  "Effect": "Allow",
+                  "Action": "iam:PassRole",
+                  "Resource": {
+                    "Ref": "ExecutionRoleArn"
+                  },
+                  "Condition": {
+                    "StringEquals": {
+                      "iam:PassedToService": "ecs-tasks.amazonaws.com"
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      }
+    }
+  },
+  "Outputs": {
+    "RoleArn": {
+      "Description": "Configure as the GitHub Actions AWS_ROLE_ARN repository setting",
+      "Value": {
+        "Fn::GetAtt": [
+          "GitHubDeployRole",
+          "Arn"
+        ]
+      }
+    }
+  }
+}
