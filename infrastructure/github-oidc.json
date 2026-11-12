@@ -53,6 +53,11 @@
       "MinLength": 1,
       "Description": "Existing TUTOR task execution role ARN",
       "AllowedPattern": "arn:aws:iam::[0-9]{12}:role/[A-Za-z0-9+=,.@_/-]+"
+    },
+    "DiscoveryServiceArn": {
+      "Type": "String",
+      "Description": "Existing TUTOR Cloud Map service ARN",
+      "AllowedPattern": "arn:aws:servicediscovery:[a-z0-9-]+:[0-9]{12}:service/srv-[a-z0-9]+"
     }
   },
   "Resources": {
@@ -166,7 +171,10 @@
                   "Action": [
                     "ecs:DescribeServices",
                     "ecs:UpdateService",
-                    "ecs:ListTagsForResource"
+                    "ecs:ListTagsForResource",
+                    "ecs:ListServiceDeployments",
+                    "ecs:TagResource",
+                    "ecs:UntagResource"
                   ],
                   "Resource": {
                     "Fn::Sub": "arn:${AWS::Partition}:ecs:${AWS::Region}:${AWS::AccountId}:service/${ClusterName}/${ServiceName}"
@@ -271,6 +279,42 @@
                         "Ref": "AWS::Region"
                       }
                     }
+                  }
+                },
+                {
+                  "Sid": "ReadExistingExecutionRole",
+                  "Effect": "Allow",
+                  "Action": [
+                    "iam:GetRole",
+                    "iam:ListAttachedRolePolicies",
+                    "iam:ListRolePolicies",
+                    "iam:GetRolePolicy"
+                  ],
+                  "Resource": {
+                    "Ref": "ExecutionRoleArn"
+                  }
+                },
+                {
+                  "Sid": "ReadExistingDiscoveryService",
+                  "Effect": "Allow",
+                  "Action": [
+                    "servicediscovery:GetService",
+                    "servicediscovery:ListTagsForResource",
+                    "servicediscovery:GetServiceAttributes"
+                  ],
+                  "Resource": {
+                    "Ref": "DiscoveryServiceArn"
+                  }
+                },
+                {
+                  "Sid": "TrackTutorRollout",
+                  "Effect": "Allow",
+                  "Action": [
+                    "ecs:DescribeServiceDeployments",
+                    "ecs:StopServiceDeployment"
+                  ],
+                  "Resource": {
+                    "Fn::Sub": "arn:${AWS::Partition}:ecs:${AWS::Region}:${AWS::AccountId}:service-deployment/${ClusterName}/${ServiceName}/*"
                   }
                 }
               ]

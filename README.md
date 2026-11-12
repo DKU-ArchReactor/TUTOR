@@ -76,7 +76,7 @@ ECS health와 실제 image digest를 확인한 뒤 BE REST 응답의 `tutor_vers
 
 관리자가 최초 1회 `infrastructure/github-oidc.json`을 별도 CloudFormation 스택으로 배포합니다.
 기존 GitHub OIDC provider와 TUTOR의 bucket, build project, ECR, service stack,
-cluster/service/task family, execution role ARN을 매개변수로 전달합니다.
+cluster/service/task family, execution role ARN, Cloud Map service ARN을 매개변수로 전달합니다.
 역할은 이 저장소의 조직·저장소 고유 ID가 포함된 immutable OIDC subject, `develop`, STS audience만 신뢰합니다.
 이 저장소의 subject 형식은 `repo:DKU-ArchReactor@265494649/TUTOR@1451272949:ref:refs/heads/develop`입니다.
 이름만 포함한 과거 형식으로 되돌리면 인증이 실패합니다. [GitHub OIDC 문서](https://docs.github.com/en/actions/reference/security/oidc#immutable-subject-claims)를 참고하세요. BE/CORE 배포 권한은 없습니다.
@@ -106,3 +106,5 @@ Repository Settings → Secrets and variables → Actions에 다음을 설정합
 배포 후 REST 검증만 실패한 경우에는 자동으로 되돌리지 않으므로 성공한 이전 digest로 복구합니다.
 
 CloudFormation은 이미지 갱신 때도 기존 VPC/Subnet/SecurityGroup 형식의 매개변수를 검증하므로, 배포 역할에는 배포 리전에 한정한 세 가지 EC2 Describe 조회 권한이 포함됩니다. 네트워크 변경 권한은 부여하지 않습니다.
+
+CloudFormation의 실제 리소스 핸들러 요구사항에 따라, 기존 TUTOR 실행 역할과 Cloud Map 서비스의 조회 및 TUTOR 배포 진행 상태 추적 권한도 포함합니다. 역할 변경이나 서비스 검색 설정 변경은 허용하지 않습니다.
