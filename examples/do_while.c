@@ -1,0 +1,12 @@
+int main(void) {
+    int i = 0;
+    int sum = 0;
+    do {
+        i++;
+        if (i == 2) {
+            continue;
+        }
+        sum += i;
+    } while (i < 4);
+    return sum;
+}

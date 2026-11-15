@@ -11,6 +11,10 @@ from archreactor_tutor.asm import explain_asm
     ('switch(x) {', 'switch'), ('case 1:', 'case'), ('default:', 'default'),
     ('break;', 'break'), ('continue;', 'continue'), ('goto done;', 'goto'), ('done:', 'label'),
     ('int x = 2;', 'initialization'), ('volatile unsigned int x;', 'declaration'),
+    ('unsigned value;', 'declaration'), ('long count;', 'declaration'),
+    ('short total;', 'declaration'), ('unsigned long long count;', 'declaration'),
+    ('char*p;', 'declaration'), ('int* p;', 'declaration'),
+    ('int (*handler)(int);', 'declaration'),
     ('volatile int *p = values;', 'initialization'), ('int a[4];', 'declaration'),
     ('*p = 5;', 'assignment'), ('a[i] += 3;', 'assignment'), ('++x;', 'increment'),
     ('puts("a=b // not a comment");', 'call'), ('typedef unsigned int word;', 'typedef'),
@@ -27,12 +31,36 @@ def test_source_comment_context_and_strings():
     assert lines[-1]['text'] == 'puts("// literal");'
 
 
+def test_standalone_comments_and_function_pointer_declarations():
+    assert explain(ExplainItem(kind='c', text='int f(void); // prototype')).title == '함수 선언'
+    assert explain(ExplainItem(kind='c', text='int (*handler)(int);')).title == '함수 포인터 선언'
+    assert explain(ExplainItem(kind='c', text='unsigned_value = 2;')).category == 'assignment'
+    assert "'count'" in explain(ExplainItem(kind='c', text='long unsigned count;')).summary
+
+
+def test_jump_targets_use_original_register_and_resolved_labels():
+    same_register = explain_asm('jalr ra, ra, 8')
+    assert 'old(ra)' in same_register.operation
+    assert explain_asm('beq a0, a1, .L2').control_flow['target_expression'] == '.L2'
+    assert explain_asm('jal ra, helper').control_flow['target_expression'] == 'helper'
+    assert explain_asm('beq a0, a1, 8').control_flow['target_expression'] == 'PC + 8'
+
+
 def test_c_explanations_do_not_invent_machine_outcomes():
     for text in ('int x;', 'int x = 0;', '{', '}'):
         assert '반드시' not in explain(ExplainItem(kind='c', text=text)).summary
     result = explain(ExplainItem(kind='c', text='if (p && *p) {'))
     assert '단락 평가' in result.detail
     assert '예측 실패' not in result.detail
+
+
+def test_scalar_initializer_explains_its_expression_without_unrelated_topics():
+    result = explain(ExplainItem(kind='c', text='int sum = a + b;'))
+    assert 'a + b' in result.summary and 'sum' in result.summary
+    assert all(word not in result.detail for word in ('BSS', '배열', '포인터'))
+    assert '포인터' in explain(ExplainItem(kind='c', text='int *p;')).detail
+    assert '배열' in explain(ExplainItem(kind='c', text='int values[4];')).detail
+    assert explain(ExplainItem(kind='c', text='int x = values[i];')).title == '변수 초기화'
 
 
 @pytest.mark.parametrize('instruction,reads,writes', [
@@ -101,3 +129,21 @@ def test_static_branch_never_claims_it_was_taken(text):
     assert result.control_flow['conditional'] is True
     assert result.writes == []
     assert '실제 taken' in result.detail
+
+
+@pytest.mark.parametrize('alias,canonical', [
+    ('beqz a0,.L1', 'beq a0,zero,.L1'), ('bnez a0,.L1', 'bne a0,zero,.L1'),
+    ('bltz a0,.L1', 'blt a0,zero,.L1'), ('bgez a0,.L1', 'bge a0,zero,.L1'),
+    ('blez a0,.L1', 'bge zero,a0,.L1'), ('bgtz a0,.L1', 'blt zero,a0,.L1'),
+    ('bgt a0,a1,.L1', 'blt a1,a0,.L1'), ('ble a0,a1,.L1', 'bge a1,a0,.L1'),
+    ('bgtu a0,a1,.L1', 'bltu a1,a0,.L1'), ('bleu a0,a1,.L1', 'bgeu a1,a0,.L1'),
+])
+def test_conditional_aliases_show_the_actual_condition(alias, canonical):
+    assert explain_asm(alias).control_flow == explain_asm(canonical).control_flow
+
+
+@pytest.mark.parametrize('text', ['add zero,a0,a1', 'lw zero,0(a0)', 'lui zero,1', 'mul zero,a0,a1'])
+def test_discarded_x0_writes_are_visible_in_the_primary_summary(text):
+    result = explain_asm(text)
+    assert '쓰기는 버려지며' in result.summary
+    assert result.writes == []

@@ -5,6 +5,8 @@ from .c_syntax import explain_c, strip_comments
 from .events import execution_steps
 from .mapping import source_mapping
 from .models import ExplainItem
+from .narrative import instruction_context, line_explanations
+from .performance import performance_analysis
 
 
 def explain(item: ExplainItem):
@@ -40,10 +42,17 @@ def simulation_explanations(result: dict, source: str = '', source_file: str | N
         result = enrich_mapping(result, elf_bytes, source_file or 'source.c')
     steps = execution_steps(result)
     mapping = source_mapping(source, result, steps, source_file)
+    lines = line_explanations(mapping['instructions'])
+    for instruction in mapping['instructions']:
+        if 'teaching' not in instruction:
+            instruction['teaching'] = instruction_context(instruction, {})
+    performance = performance_analysis(result, steps, mapping['instructions'])
     return {
         'schema_version': '1.0', 'asm_instructions': mapping['instructions'],
+        'performance_analysis': performance,
         'cycle_explanations': [{key: step[key] for key in ('history_index', 'cycle', 'display_clock', 'events')} for step in steps if step['events']],
         'execution_steps': steps, 'source_mapping': mapping,
+        'line_explanations': lines,
         'source_sha256': sha256(source.encode()).hexdigest() if source else None,
         'limitations': ['읽기 전용 해설이며 제출한 C/ASM을 실행하거나 CORE 상태를 변경하지 않습니다.',
                         '문법 규칙은 컴파일러·완전한 C 파서를 대신하지 않습니다. 관찰 값과 정적 의미를 구분합니다.'],
