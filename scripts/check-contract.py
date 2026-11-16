@@ -9,7 +9,7 @@ with tempfile.TemporaryDirectory() as tmp:
         '--grpc_python_out='+tmp, '--descriptor_set_out='+tmp+'/contract.pb',
         'proto/tutor_contract/v1/tutor.proto'], cwd=ROOT, check=True)
     for name in ['tutor_contract/v1/tutor_pb2.py','tutor_contract/v1/tutor_pb2_grpc.py']:
-        if (ROOT/name).read_bytes() != (Path(tmp)/name).read_bytes():
+        if (ROOT/name).read_text(encoding='utf-8') != (Path(tmp)/name).read_text(encoding='utf-8'):
             raise SystemExit('Regenerate contract: '+name)
     if (ROOT/'proto/contract.pb').read_bytes() != (Path(tmp)/'contract.pb').read_bytes():
         raise SystemExit('Regenerate proto/contract.pb')

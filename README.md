@@ -11,6 +11,11 @@
 샘플은 인증 없이 호출 가능하며 코드 실행, DB 접근, 모델 호출을 하지 않습니다.
 실제 해설은 `Explain`, `Compile`, `Analyze` RPC로 제공합니다. 인증·소유권 검증은 기존 BE가 수행하며 FE는 기존 REST 경로를 사용합니다. [연결 계약과 적용 순서](docs/integration.md)를 참고하세요.
 
+`Analyze`의 명령어별 `teaching.concepts`에는 관련 RISC-V 개념, 학습 예제, 확인 질문·답과 참고 자료 링크를 제공합니다. 공식 RV32I·M 명세, 표준 호출 규약, Cornell CS 3410 자료를 참고해 작성했으며, 학습 예제의 숫자는 CORE가 관찰한 실행값이 아닙니다. FE는 개념과 답을 별도로 펼쳐 볼 수 있습니다.
+
+`performance_analysis`는 이력 인덱스별 CPI·스톨·플러시·포워딩 관찰 클록과 명령어별 원인 기록을 제공합니다. 스톨과 플러시가 겹친 클록을 별도로 세며, CORE의 소비 명령어·앞선 쓰기 레지스터가 확인될 때 의존성을 연결합니다. FE는 선택한 시점까지의 기록만 표시합니다. 관찰 클록은 원인별 순수 성능 손실이나 포워딩 절약 클록과 구분합니다.
+
+
 ## 로컬 실행
 
 ```sh
@@ -32,9 +37,15 @@ Windows에서는 `.venv\\Scripts\\python.exe -m ...` 형태로 같은 명령을 
 python scripts/run_demos.py
 ```
 
-이 명령은 임시 로컬 gRPC 서버를 자동 기동·종료합니다. 10개 예제를 single/pipeline으로 실행해 20건을 검증합니다.
+이 명령은 임시 로컬 gRPC 서버를 자동 기동·종료합니다. 18개 예제를 single/pipeline으로 실행해 36건을 검증합니다. [시연 순서와 기대 결과](examples/DEMO.md)를 참고하세요.
+BE가 반환한 배포 튜터의 컴파일 해설·실행 분석도 필수 검사하며, 로컬 분석과 C 줄 매핑·PC별 완료 횟수·클록별 상태 변화·이벤트를 대조합니다. ASM의 원본 파일 줄 정보는 BE의 C 파일 필터와 비교하지 않습니다.
 `--target HOST:50051`을 지정하면 이미 실행 중인 서버를 검사합니다. 토큰과 서명 URL은 저장하지 않으며 결과는 Git에서 제외한 `artifacts/`에 생성합니다.
 샘플과 새 RPC의 컨테이너 검사에는 `scripts/smoke.py`를 사용합니다.
+
+FE에서 수정 중인 해설을 보려면 `pip install -r requirements-preview.txt` 후 `python scripts/preview.py`를 실행합니다.
+로컬 `127.0.0.1:8101`이 배포 BE의 컴파일·CORE 실행 결과를 받아 이 소스의 gRPC 튜터로 분석합니다.
+FE의 로컬 환경에 `VITE_API_URL=http://localhost:8101`을 설정하고 다시 컴파일하면 새 해설을 볼 수 있습니다.
+미리보기 프로세스를 종료하면 메모리에 보관한 소스·ELF가 삭제됩니다.
 
 BE 설정: `TUTOR_GRPC_TARGET=127.0.0.1:50051`, `TUTOR_GRPC_TIMEOUT_SECONDS=5`.
 

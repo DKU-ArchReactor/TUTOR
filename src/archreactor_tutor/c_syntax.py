@@ -2,7 +2,7 @@
 import re
 from .models import RuleExplanation
 
-TYPES = r"(?:(?:static|extern|register|auto|const|volatile|signed|unsigned|short|long)\s+)*(?:int|char|void|float|double|_Bool|bool|size_t|u?int(?:8|16|32|64)_t|struct\s+\w+|enum\s+\w+|union\s+\w+)(?:\s+(?:long|int|const|volatile))*"
+TYPES = r"(?:(?:(?:static|extern|register|auto|const|volatile|signed|unsigned|short|long)\s+)*(?:int|char|void|float|double|_Bool|bool|size_t|u?int(?:8|16|32|64)_t|struct\s+\w+|enum\s+\w+|union\s+\w+)(?:\s+(?:long|int|const|volatile))*|(?:(?:static|extern|register|auto|const|volatile)\s+)*(?:signed|unsigned|short|long)(?:\s+(?:signed|unsigned|short|long|const|volatile))*)\b"
 
 
 def strip_comments(source: str) -> list[str]:
@@ -38,7 +38,7 @@ def strip_comments(source: str) -> list[str]:
 
 
 def explain_c(raw: str, *, cleaned: str | None = None) -> RuleExplanation:
-    line = raw.strip() if cleaned is None else cleaned.strip()
+    line = '\n'.join(strip_comments(raw)).strip() if cleaned is None else cleaned.strip()
     line = re.sub(r"^(?:}\s*)+(?=(?:else|while)\b)", "", line)
 
     def out(category, title, summary, detail, notes=()):
@@ -90,20 +90,49 @@ def explain_c(raw: str, *, cleaned: str | None = None) -> RuleExplanation:
     ]
     for pattern, category, title, summary in patterns:
         if re.match(pattern, line):
-            return out(category, title, summary, "분기·비교·점프 등으로 구현될 수 있지만, 소스의 참/거짓 경로와 어셈블리 taken 값은 동일하지 않을 수 있습니다. 실제 실행 경로는 PC와 CORE 제어 이벤트를 연결해 확인합니다.")
+            details = {
+                'if': '조건식을 평가해 0이면 거짓, 0이 아니면 참으로 처리합니다. 컴파일러는 반대 조건으로 본문을 건너뛰게 만들 수도 있으므로 실제 비교 명령어와 이동 PC를 함께 확인하세요.',
+                'else_if': '앞의 if·else if가 모두 거짓일 때 이 조건을 검사합니다. 앞선 조건이 참이면 이 조건식의 평가도 건너뜁니다.',
+                'else': '연결된 조건들이 모두 거짓인 경로의 본문입니다. 앞선 참 경로를 실행한 뒤에는 보통 점프로 이 본문을 건너뜁니다.',
+                'for': '초기화는 진입 때 한 번 수행하고, 조건 검사 → 본문 → 증감 → 조건 검사 순서로 진행합니다. continue는 증감식으로, break는 반복문 밖으로 이동합니다.',
+                'while': 'while 본문의 진입 조건이면 조건을 먼저 검사하므로 본문을 한 번도 실행하지 않을 수 있습니다. do-while 끝의 조건이면 이미 실행한 본문을 반복할지 검사합니다.',
+                'do': '본문 → 조건 검사 순서입니다. 꼬리의 조건이 처음부터 거짓이어도 본문에는 한 번 진입합니다.',
+                'switch': '선택값에 맞는 case로 진입하고, 일치하는 case가 없으면 default 또는 switch 뒤로 이동합니다. 구현은 비교·분기 연쇄나 점프 테이블일 수 있습니다.',
+                'case': 'case는 비교값에 대응하는 진입 위치입니다. 여기까지 실행이 이어져 오면 case 값의 일치 여부를 다시 검사하지 않습니다. break가 없으면 다음 case의 본문도 실행될 수 있습니다.',
+                'default': '어떤 case도 일치하지 않을 때의 진입 위치입니다. 다른 case에서 break 없이 실행이 이어져 default 본문에 도달할 수도 있습니다.',
+                'break': '가장 안쪽의 반복문 또는 switch 바로 뒤로 이동합니다. if 블록만 종료하는 동작은 아니며, 중첩된 바깥 반복문은 계속될 수 있습니다.',
+                'continue': '가장 안쪽 반복문의 다음 반복으로 이동합니다. for는 증감식, while·do-while은 조건 검사로 이어집니다.',
+                'goto': '같은 함수 안의 레이블로 제어를 옮깁니다. 레이블의 위치는 생성된 점프 목적지와 소스 매핑으로 확인할 수 있습니다.',
+            }
+            return out(category, title, summary, details[category])
     if re.match(r"^[A-Za-z_]\w*\s*:", line):
         return out("label", "C 레이블", "goto가 대상으로 삼을 수 있는 위치입니다.", "레이블 자체는 연산 명령어가 아닙니다.")
 
-    declaration = re.match(rf"^{TYPES}\s+(.*)", line)
+    declaration = re.match(rf"^{TYPES}(?:\s+|(?=[*(]))(.*)", line)
     if declaration:
         rest = declaration[1]
         name = re.search(r"([A-Za-z_]\w*)", rest)
         label = name[1] if name else "변수"
         category = "initialization" if re.search(r"=(?!=)", rest) else "declaration"
-        array = "[" in rest
+        array = "[" in rest.split('=', 1)[0]
         pointer = rest.lstrip().startswith("*")
+        function_pointer = re.match(r"\(\s*\*\s*([A-Za-z_]\w*)\s*\)\s*\(", rest)
+        if function_pointer:
+            return out(category, "함수 포인터 선언", f"'{function_pointer[1]}'은 함수를 가리키는 포인터입니다.", "함수 자체의 선언과 구분합니다. 선언만으로 함수를 호출하지 않으며, 실제 호출 대상과 인자는 호출 지점의 명령어와 실행 이력을 확인합니다.")
         title = "배열 선언" if array else ("포인터 선언" if pointer else ("변수 초기화" if category == "initialization" else "변수 선언"))
-        return out(category, title, f"'{label}'의 타입과 {'초기값을 지정' if category == 'initialization' else '사용을 선언'}합니다.", "저장 위치는 레지스터·스택·정적 데이터 등일 수 있습니다. 초기화된 전역 값이 0이라고 무조건 BSS로 분류하지 않습니다. 포인터는 주소를 담고, 배열 선언은 원소들의 저장 공간을 표현합니다. 실제 크기와 배치는 ELF 메모리 영역과 명령어를 확인하세요.")
+        if array:
+            detail = "같은 타입의 원소들을 연속해서 저장하는 배열을 선언합니다. 원소 접근 명령어에서는 기준 주소와 원소 크기에 따른 오프셋을 확인할 수 있습니다."
+        elif pointer:
+            detail = "주소를 저장하는 포인터를 선언합니다. 포인터 값의 저장과, 그 주소를 통해 데이터를 읽거나 쓰는 동작을 구분해서 확인하세요."
+        elif category == 'initialization':
+            detail = "변수를 만드는 시점에 초기값을 설정합니다. 아래에 연결된 명령어에서 값 준비·계산·저장이 어떻게 구현됐는지 확인할 수 있습니다."
+        else:
+            detail = "변수의 타입과 이름을 선언합니다. 초기값이 없는 선언의 값은 저장 기간과 주변 코드에 따라 결정됩니다."
+        initializer = re.fullmatch(r"[A-Za-z_]\w*\s*=\s*(.+);", rest)
+        summary = f"'{label}'의 타입과 {'초기값을 지정' if category == 'initialization' else '사용을 선언'}합니다."
+        if initializer:
+            summary = f"'{initializer[1].strip()}'의 값으로 '{label}'을 초기화합니다."
+        return out(category, title, summary, detail)
 
     if re.match(r"^(?:\+\+|--)", line) or re.search(r"(?:\+\+|--)\s*;", line):
         return out("increment", "증가/감소", "값을 1 증가 또는 감소시킵니다.", "전위와 후위는 표현식이 돌려주는 값이 다릅니다. 결과가 사용되는지에 따라 생성되는 명령어가 달라집니다.")

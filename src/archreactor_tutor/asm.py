@@ -21,6 +21,15 @@ def register(token: str) -> str | None:
     return REGISTERS.get(token.strip().lower())
 
 
+def pc_target(target: str) -> str:
+    """Numeric displacements are PC-relative; labels name the resolved target."""
+    try:
+        int(target, 0)
+    except ValueError:
+        return target
+    return f"PC + {target}"
+
+
 def explain_encoded_asm(text: str, raw_instruction) -> RuleExplanation:
     """CORE displays U immediates already shifted; use encoding when available."""
     try:
@@ -47,17 +56,22 @@ def explain_asm(raw: str) -> RuleExplanation:
     operands = re.sub(r",\s*", ", ", tokens[1]) if len(tokens) > 1 else ""
     parts = [part.strip() for part in operands.split(",")] if operands else []
     result = RuleExplanation(kind="asm", category="instruction", title=f"RISC-V 명령어 ({op})", summary=text, detail="", opcode=op, operands=operands)
+    discarded_write = False
 
     def finish(category, title, summary, operation=None, notes=()):
+        if discarded_write:
+            summary += ' 목적지 x0에 대한 쓰기는 버려지며 x0는 0을 유지합니다.'
         result.category, result.title, result.summary, result.operation = category, title, summary, operation
         result.notes.extend(notes)
         result.detail = " ".join(result.notes)
         return result
 
     def registers(reads=(), writes=()):
+        nonlocal discarded_write
         result.reads = list(dict.fromkeys(register(x) for x in reads if register(x)))
         result.writes = list(dict.fromkeys(register(x) for x in writes if register(x) not in (None, "x0")))
         if any(register(x) == "x0" for x in writes):
+            discarded_write = True
             result.notes.append("목적지 x0에 쓰는 값은 버려지며 x0는 항상 0입니다.")
 
     def invalid(reason):
@@ -110,13 +124,17 @@ def explain_asm(raw: str) -> RuleExplanation:
         if immediate and op not in ("slli", "srli", "srai"):
             notes.append("즉치값은 부호 확장됩니다. sltiu도 먼저 즉치값을 부호 확장한 뒤 부호 없는 비교를 합니다.")
         if base in ("sll", "srl", "sra"):
-            notes.append("RV32 레지스터 시프트는 두 번째 레지스터의 하위 5비트만 사용합니다. 산술 오른쪽 시프트는 부호 비트를 채우고 논리 오른쪽 시프트는 0을 채웁니다.")
+            notes.append("RV32 즉치 시프트 크기는 명령어에 들어 있는 0~31의 값입니다." if immediate else "RV32 레지스터 시프트는 두 번째 레지스터의 하위 5비트만 사용합니다.")
+            notes.append("산술 오른쪽 시프트는 부호 비트를 채우고 논리 오른쪽 시프트는 0을 채웁니다.")
         if base in ("slt", "sltu"):
             notes.append("비교 조건이 참이면 1, 거짓이면 0을 기록합니다.")
         if op == "addi" and register(rd) == register(rs1) == "x2":
             notes.append("sp 조정은 보통 스택 프레임 확보·반환에 쓰이지만, 이 명령어만으로 함수 시작·끝을 확정할 수 없습니다.")
             return finish("stack", "스택 포인터 조정", operation, operation, notes)
-        return finish("arithmetic", title, operation, operation, notes)
+        summary = f"{rs1}와 {rhs}의 {title} 결과를 {rd}에 기록합니다."
+        if base in ('slt', 'sltu'):
+            summary = f"{rs1}가 {rhs}보다 작으면 {rd}에 1, 아니면 0을 기록합니다."
+        return finish("arithmetic", title, summary, operation, notes)
 
     if op in LOADS or op in STORES:
         if len(parts) != 2 or not register(parts[0]):
@@ -142,7 +160,9 @@ def explain_asm(raw: str) -> RuleExplanation:
             notes.append(f"원본 레지스터의 하위 {width}비트만 저장합니다. Store는 레지스터에 결과를 쓰지 않습니다.")
         notes.append("실제 접근 주소·값·정렬 오류는 MEM 단계와 runtime_error 이벤트에서 확인합니다.")
         operation = f"{parts[0]} ← MEM{width}[{expression}]" if load else f"MEM{width}[{expression}] ← {parts[0]}"
-        return finish("load" if load else "store", "메모리 읽기" if load else "메모리 쓰기", operation, operation, notes)
+        summary = (f"{base} 기준 {offset:+d}바이트 주소에서 {width // 8}바이트를 읽어 {parts[0]}에 담습니다."
+                   if load else f"{parts[0]}의 하위 {width}비트를 {base} 기준 {offset:+d}바이트 주소에 저장합니다.")
+        return finish("load" if load else "store", "메모리 읽기" if load else "메모리 쓰기", summary, operation, notes)
 
     if op in BRANCHES:
         if len(parts) != 3 or not all(register(x) for x in parts[:2]):
@@ -152,7 +172,7 @@ def explain_asm(raw: str) -> RuleExplanation:
         interpretation = "s32" if signed else "u32"
         condition = f"{interpretation}({rs1}) {symbol} {interpretation}({rs2})"
         registers((rs1, rs2))
-        result.control_flow = {"conditional": True, "condition": condition, "target_expression": f"PC + {target}", "link_register": None}
+        result.control_flow = {"conditional": True, "condition": condition, "target_expression": pc_target(target), "link_register": None}
         return finish("branch", "조건 분기", f"{condition}이면 {target}로 분기합니다.", notes=("분기 즉치값은 현재 명령어 PC 기준 상대 오프셋입니다. 레이블은 어셈블러가 실제 오프셋으로 변환합니다.", "조건이 거짓이면 다음 명령어 PC + 4로 진행합니다. 실제 taken 여부·플러시는 CORE 이벤트를 사용합니다. 예측 실패로 단정하지 않습니다."))
 
     if op in ("lui", "auipc"):
@@ -176,7 +196,7 @@ def explain_asm(raw: str) -> RuleExplanation:
             if len(parts) != 2 or not register(parts[0]):
                 return invalid("jal은 목적지 레지스터와 PC 상대 목적지가 필요합니다.")
             rd, target = parts
-            reads, expression = (), f"PC + {target}"
+            reads, expression = (), pc_target(target)
         else:
             if len(parts) == 2:
                 memory = re.fullmatch(r"(-?(?:0[xX][0-9a-fA-F]+|\d+))\((\w+)\)", parts[1])
@@ -190,13 +210,21 @@ def explain_asm(raw: str) -> RuleExplanation:
                     return invalid("jalr 즉치값은 부호 있는 12비트 범위여야 합니다.")
             except ValueError:
                 return invalid("jalr 즉치값은 정수여야 합니다. 심볼 재배치는 링크 결과를 확인하세요.")
-            reads, expression = (rs1,), f"({rs1} + {imm}) & ~1"
+            base = f"old({rs1})" if register(rd) == register(rs1) else rs1
+            reads, expression = (rs1,), f"({base} + {imm}) & ~1"
         registers(reads, (rd,))
         result.control_flow = {"conditional": False, "condition": None, "target_expression": expression, "link_register": register(rd) if register(rd) != "x0" else None}
         return finish("control", "점프 및 복귀 주소 기록", f"PC를 {expression}로 변경합니다.", f"{rd} = PC + 4; PC = {expression}",
-                      ("복귀 주소는 현재 명령어 주소 + 4입니다. rd가 x0이면 링크 값은 버려집니다.", "jalr의 목표 주소는 최하위 비트를 0으로 만듭니다. 실제 목표·분기/정렬 오류는 CORE 이벤트에서 확인합니다."))
+                      ("복귀 주소는 현재 명령어 주소 + 4입니다. rd가 x0이면 링크 값은 버려집니다.", "jalr의 목표는 목적지 레지스터를 쓰기 전의 기준 레지스터 값으로 계산합니다. old는 명령어 실행 전 값이며 목표 주소의 최하위 비트는 0으로 만듭니다. 실제 목표·분기/정렬 오류는 CORE 이벤트에서 확인합니다."))
 
     if op in ALIASES:
+        conditional_aliases = {
+            'beqz': ('beq', False), 'bnez': ('bne', False),
+            'bltz': ('blt', False), 'bgez': ('bge', False),
+            'blez': ('bge', True), 'bgtz': ('blt', True),
+            'bgt': ('blt', True), 'ble': ('bge', True),
+            'bgtu': ('bltu', True), 'bleu': ('bgeu', True),
+        }
         expansion = {"mv": "addi rd, rs, 0", "not": "xori rd, rs, -1", "neg": "sub rd, zero, rs", "nop": "addi zero, zero, 0", "ret": "jalr zero, 0(ra)", "j": "jal zero, target", "jr": "jalr zero, 0(rs)", "seqz": "sltiu rd, rs, 1", "snez": "sltu rd, zero, rs", "sltz": "slt rd, rs, zero", "sgtz": "slt rd, zero, rs"}.get(op)
         if op in ("ret", "nop") and parts:
             return invalid("이 의사 명령어는 피연산자를 받지 않습니다.")
@@ -230,6 +258,16 @@ def explain_asm(raw: str) -> RuleExplanation:
         elif op in ("li", "la", "lla") and parts:
             registers(writes=(parts[0],))
         notes = [f"일반적인 확장: {expansion}." if expansion else "실제 기본 명령어 수와 확장은 즉치값·심볼·재배치·링커 완화에 따라 달라집니다.", "의사 명령어 자체가 별도의 하드웨어 연산인 것은 아닙니다. 정확한 실행은 링크된 기계어를 확인하세요."]
+        if op in conditional_aliases:
+            base, reverse = conditional_aliases[op]
+            operands = parts[:-1] if len(parts) == 3 else [parts[0], 'zero']
+            if reverse:
+                operands = list(reversed(operands))
+            expansion = f"{base} {operands[0]}, {operands[1]}, {parts[-1]}"
+            canonical = explain_asm(expansion)
+            result.control_flow = canonical.control_flow
+            notes = [f'기본 명령어로 {expansion}에 해당합니다.', *canonical.notes]
+            return finish('pseudo', '조건 분기 의사 명령어', canonical.summary, expansion, notes)
         return finish("pseudo", "어셈블리 의사 명령어", f"{text}의 의미를 기본 RISC-V 명령어로 표현합니다.", expansion, notes)
 
     if op in ("ecall", "ebreak", "fence"):

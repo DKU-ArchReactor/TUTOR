@@ -1,4 +1,8 @@
 [
+  {"id":"addition","title":"덧셈의 읽기·계산·저장","file":"addition.c","lang":"c","a0":18,"walkthrough":true},
+  {"id":"immediate_shift","title":"즉치값·왼쪽 시프트·비트 마스크","file":"immediate_shift.c","lang":"c","a0":9,"concepts":["immediate","shift-left","bitwise"],"walkthrough":true},
+  {"id":"function_arguments","title":"함수 인자·반환값·복귀 주소","file":"function_arguments.c","lang":"c","a0":12,"concepts":["argument-abi","call-return","stack-abi"],"walkthrough":true},
+  {"id":"halfword_extension","title":"16비트 signed·unsigned 읽기","file":"halfword_extension.c","lang":"c","a0":65532,"concepts":["load-extension","load-store"],"walkthrough":true},
   {"id":"arithmetic","title":"부호 있는 나눗셈과 나머지","file":"arithmetic.c","lang":"c","a0":-32},
   {"id":"branches","title":"if / else if / else의 실제 분기","file":"branches.c","lang":"c","a0":111},
   {"id":"loop_control","title":"반복문·continue·break","file":"loop_control.c","lang":"c","a0":13},
@@ -6,6 +10,10 @@
   {"id":"signed_load","title":"LB와 LBU의 부호 확장 차이","file":"signed_load.c","lang":"c","a0":254},
   {"id":"recursion","title":"재귀 호출·스택·복귀","file":"recursion.c","lang":"c","a0":10},
   {"id":"pointer_memory","title":"배열·포인터·Load/Store","file":"pointer_memory.c","lang":"c","a0":25},
+  {"id":"short_circuit","title":"단락 평가·삼항 조건식","file":"short_circuit.c","lang":"c","a0":8},
+  {"id":"do_while","title":"do-while·continue의 이동 위치","file":"do_while.c","lang":"c","a0":8},
+  {"id":"nested_switch","title":"중첩 switch·fall-through·break","file":"nested_switch.c","lang":"c","a0":47},
+  {"id":"signed_compare","title":"같은 비트의 signed·unsigned 비교","file":"signed_compare.c","lang":"c","a0":111},
   {"id":"misaligned","title":"정렬되지 않은 접근 오류","file":"misaligned.s","lang":"asm","status":"SIMULATION_ERROR"},
   {"id":"cycle_limit","title":"무한 반복과 사이클 제한","file":"cycle_limit.s","lang":"asm","status":"CYCLE_LIMIT","max_cycles":20},
   {"id":"divide_zero","title":"RV32M의 0 나눗셈 규약","file":"divide_zero.s","lang":"asm","a0":-1,"a1":19}
