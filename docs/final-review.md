@@ -8,7 +8,7 @@
 - TUTOR 개발 브랜치: `1b40eb8` (PR #5 병합).
 - BE 통합 브랜치 core: `3b68ef1`.
 - CORE 개발 브랜치: `0a0934e`.
-- 이번 보정은 FE·TUTOR의 로컬 `fix/tutor-final-audit` 브랜치에 준비했습니다. PR 생성·병합·배포는 하지 않았습니다.
+- 이번 보정은 FE·TUTOR의 `fix/tutor-final-audit` 브랜치에 준비하며 develop 대상 PR로 검토합니다. 이 문서는 점검 시점의 기록이며 이후 PR·배포 상태는 GitHub에서 확인합니다.
 
 ## 이전 튜터와 달라진 점
 
