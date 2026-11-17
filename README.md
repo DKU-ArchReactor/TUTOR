@@ -37,7 +37,7 @@ Windows에서는 `.venv\\Scripts\\python.exe -m ...` 형태로 같은 명령을 
 python scripts/run_demos.py
 ```
 
-이 명령은 임시 로컬 gRPC 서버를 자동 기동·종료합니다. 18개 예제를 single/pipeline으로 실행해 36건을 검증합니다. [시연 순서와 기대 결과](examples/DEMO.md)를 참고하세요.
+이 명령은 임시 로컬 gRPC 서버를 자동 기동·종료합니다. 19개 예제를 single/pipeline으로 실행해 38건을 검증합니다. [시연 순서와 기대 결과](examples/DEMO.md)를 참고하세요.
 BE가 반환한 배포 튜터의 컴파일 해설·실행 분석도 필수 검사하며, 로컬 분석과 C 줄 매핑·PC별 완료 횟수·클록별 상태 변화·이벤트를 대조합니다. ASM의 원본 파일 줄 정보는 BE의 C 파일 필터와 비교하지 않습니다.
 `--target HOST:50051`을 지정하면 이미 실행 중인 서버를 검사합니다. 토큰과 서명 URL은 저장하지 않으며 결과는 Git에서 제외한 `artifacts/`에 생성합니다.
 샘플과 새 RPC의 컨테이너 검사에는 `scripts/smoke.py`를 사용합니다.

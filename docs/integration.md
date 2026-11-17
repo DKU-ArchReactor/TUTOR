@@ -1,5 +1,7 @@
 # 해설 gRPC 연결
 
+아래 브랜치 이름·미푸시 상태는 2026-11-12 초기 이관 기록입니다. 현재 배포 상태와 재검증 결과는 [최종 점검](final-review.md)을 확인하세요. 요청 경로와 gRPC 계약 설명은 유지합니다.
+
 기준: TUTOR `develop` 99801bc, BE `core` 4f09fc8, FE `develop` edd0770 (2026-11-12 조회).
 기존 ECS 자동배포·OIDC·Cloud Map·포트 50051·gRPC health·Sample RPC는 유지합니다.
 이 브랜치를 병합하면 기존 develop 자동배포가 실행되므로 리뷰 전에는 병합하지 않습니다.

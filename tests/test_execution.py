@@ -2,6 +2,19 @@ from copy import deepcopy
 from archreactor_tutor import analyze_execution, simulation_explanations
 
 
+def test_shift_observations_show_effective_amount_and_preserve_core_values():
+    stage = {'pc': '0x10000', 'assembly': 'srai a0, t0, 1025', 'status': 'normal',
+             'operand_1': '0xFFFFFFF8', 'operand_2': '0x00000401',
+             'alu_result': '0xFFFFFFFC', 'alu_operation': 'srai'}
+    result = {'history': [{'clock': 0, 'stage_activity': {'EX': stage}, 'global_result': {}}]}
+    before = deepcopy(result)
+    tutor = simulation_explanations(result)
+    text = tutor['execution_steps'][0]['instruction_observations'][0]['summary']
+    assert '오른쪽으로 1비트' in text and '0xFFFFFFFC' in text
+    assert '부호 비트' in text and '1025' not in text and '0x00000401' not in text
+    assert result == before
+
+
 def cycle(clock, retired, pc='0x00010000', events=None, value='0x00000001'):
     return {'clock': clock, 'stage_activity': {'WB': {'pc': pc, 'assembly': 'addi a0,a0,1', 'status': 'normal'}},
             'cycle_events': events or {}, 'global_result': {'registers': {'x10': value}, 'memory_snapshot': {}, 'metrics': {'accumulated_instructions': retired}}}
