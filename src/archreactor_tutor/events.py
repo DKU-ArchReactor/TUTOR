@@ -76,7 +76,15 @@ def instruction_observations(cycle, retired_pc, locations):
             operands = f"{value_text(stage['operand_1'])}, {value_text(stage['operand_2'])}"
             operation = stage.get('alu_operation')
             symbol = {'add': '+', 'sub': '-', 'and': '&', 'or': '|', 'xor': '^'}.get(operation)
-            if symbol:
+            try:
+                shift_amount = int(str(stage['operand_2']), 0) & 31
+            except ValueError:
+                shift_amount = None
+            if opcode in ('sll', 'slli', 'srl', 'srli', 'sra', 'srai') and shift_amount is not None:
+                direction = '왼쪽' if opcode in ('sll', 'slli') else '오른쪽'
+                summary = f"실제 입력 {value_text(stage['operand_1'])}을 {direction}으로 {shift_amount}비트 이동한 결과는 {value_text(stage['alu_result'])}입니다."
+                summary += ' 부호 비트로 빈자리를 채웁니다.' if opcode in ('sra', 'srai') else ' 빈자리는 0으로 채웁니다.'
+            elif symbol:
                 summary = f"실제 계산은 {value_text(stage['operand_1'])} {symbol} {value_text(stage['operand_2'])} = {value_text(stage['alu_result'])}입니다."
             else:
                 summary = f"ALU {operation or '연산'}의 실제 입력은 {operands}이며 결과는 {value_text(stage['alu_result'])}입니다."

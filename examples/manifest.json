@@ -16,5 +16,6 @@
   {"id":"signed_compare","title":"같은 비트의 signed·unsigned 비교","file":"signed_compare.c","lang":"c","a0":111},
   {"id":"misaligned","title":"정렬되지 않은 접근 오류","file":"misaligned.s","lang":"asm","status":"SIMULATION_ERROR"},
   {"id":"cycle_limit","title":"무한 반복과 사이클 제한","file":"cycle_limit.s","lang":"asm","status":"CYCLE_LIMIT","max_cycles":20},
-  {"id":"divide_zero","title":"RV32M의 0 나눗셈 규약","file":"divide_zero.s","lang":"asm","a0":-1,"a1":19}
+  {"id":"divide_zero","title":"RV32M의 0 나눗셈 규약","file":"divide_zero.s","lang":"asm","a0":-1,"a1":19},
+  {"id":"arithmetic_right_shift","title":"음수 산술 오른쪽 시프트와 실제 이동 크기","file":"arithmetic_right_shift.s","lang":"asm","a0":-4,"a1":-1,"concepts":["shift"],"walkthrough":true}
 ]

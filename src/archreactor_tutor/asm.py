@@ -31,13 +31,32 @@ def pc_target(target: str) -> str:
 
 
 def explain_encoded_asm(text: str, raw_instruction) -> RuleExplanation:
-    """CORE displays U immediates already shifted; use encoding when available."""
+    """Recover U fields and shift amounts from verified instruction encodings."""
     try:
         word = int(raw_instruction, 16) if isinstance(raw_instruction, str) else None
     except ValueError:
         word = None
     tokens = text.split(None, 1)
     op = tokens[0].lower() if tokens else ''
+    shift_fields = {'slli': (1, 0), 'srli': (5, 0), 'srai': (5, 0x20)}
+    if op in shift_fields and word is not None and 0 <= word <= 0xFFFFFFFF:
+        funct3, funct7 = shift_fields[op]
+        if word & 0x7F == 0x13 and (word >> 12) & 7 == funct3 and word >> 25 == funct7:
+            rd, rs1, amount = (word >> 7) & 31, (word >> 15) & 31, (word >> 20) & 31
+            result = explain_asm(f'{op} x{rd}, x{rs1}, {amount}')
+            displayed = explain_asm(text)
+            # Preserve ABI register names when the displayed operands are already correct.
+            if displayed.supported and displayed.reads == result.reads and displayed.writes == result.writes:
+                try:
+                    if int((displayed.operands or '').split(',')[-1], 0) == amount:
+                        return displayed
+                except ValueError:
+                    pass
+            note = f'기계어 {raw_instruction}의 실제 시프트 크기는 {amount}비트입니다. CORE 표시 문자열에는 명령어 구분 비트가 포함된 숫자가 나타날 수 있어, 이동 크기는 기계어의 시프트 크기 필드(비트 24~20)로 확인합니다.'
+            result.notes.append(note)
+            result.detail += ' ' + note
+            result.summary += f' 기계어 기준 실제 이동 크기는 {amount}비트입니다.'
+            return result
     expected = {'lui': 0x37, 'auipc': 0x17}.get(op)
     if expected is not None and word is not None and 0 <= word <= 0xFFFFFFFF and word & 0x7F == expected:
         rd, immediate = (word >> 7) & 31, word >> 12
@@ -271,6 +290,11 @@ def explain_asm(raw: str) -> RuleExplanation:
         return finish("pseudo", "어셈블리 의사 명령어", f"{text}의 의미를 기본 RISC-V 명령어로 표현합니다.", expansion, notes)
 
     if op in ("ecall", "ebreak", "fence"):
-        return finish("environment", "실행 환경 요청" if op != "fence" else "메모리 순서 제약", f"{op} 명령어입니다.", notes=("ecall 번호·출력·종료는 실행 환경의 규약에 따르며, RISC-V ISA 자체가 a7=10을 종료로 정의하지 않습니다." if op == "ecall" else "실행 환경 및 시뮬레이터의 지원 범위를 확인하세요.",))
+        if op != 'ecall':
+            result.supported = False
+            meaning = '실행을 중단하고 디버거 등에 제어를 넘기는 환경 예외 요청' if op == 'ebreak' else '메모리 접근의 관찰 순서를 제약하는 명령어'
+            return finish('unsupported', 'CORE 실행 미지원', f'{op}는 {meaning}입니다. 현재 ArchReactor CORE에서는 실행을 지원하지 않습니다.',
+                          notes=('RISC-V 표준 명령어의 의미와 이 시뮬레이터의 실행 지원 범위는 다릅니다. CORE는 FENCE와 EBREAK를 지원하지 않습니다.',))
+        return finish("environment", "실행 환경 요청", f"{op} 명령어입니다.", notes=("ecall 번호·출력·종료는 실행 환경의 규약에 따르며, RISC-V ISA 자체가 a7=10을 종료로 정의하지 않습니다.",))
     result.supported, result.evidence_level = False, "unknown"
     return finish("unsupported", "지원 범위 확인 필요", f"'{op}'에 대한 RV32IM 상세 해설이 없습니다.", notes=("RV64·부동소수점·특권 명령어 등을 RV32IM 지원 명령어로 단정하지 않습니다.",))

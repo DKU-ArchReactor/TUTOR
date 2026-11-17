@@ -31,12 +31,16 @@ def test_explain_compile_and_analyze_real_roundtrip(stub):
     original = {'history': [], 'program': {'code_mapping': {
         '0x10000': {'assembly': 'lui a5, 65536', 'raw_instruction': '0x000107B7', 'source_line': 2},
         '0x10004': {'assembly': 'ecall', 'source_line': None},
+        '0x10008': {'assembly': 'srai a0, a1, 1026', 'raw_instruction': '0x4025D513', 'source_line': None},
     }}}
     analyzed = stub.Analyze(pb.AnalyzeRequest(request_id=identifier, source='int main() {\n return 7;\n}', result_json=json.dumps(original)), timeout=3)
     data = json.loads(analyzed.result_json)
     assert data['source_mapping']['lines'][1]['instructions'][0]['pc'] == '0x00010000'
     assert data['asm_instructions'][0]['explanation']['operation'] == 'x15 = (16 << 12)'
     assert data['asm_instructions'][1]['runtime_explanation']['category'] == 'unmapped'
+    shift = data['asm_instructions'][2]['explanation']
+    assert shift['supported'] and shift['operands'] == 'x10, x11, 2'
+    assert '2비트' in shift['summary']
     assert original['program']['code_mapping']['0x10000']['assembly'] == 'lui a5, 65536'
 
 

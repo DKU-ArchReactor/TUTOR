@@ -1,6 +1,6 @@
 import pytest
 from archreactor_tutor import ExplainItem, explain, compile_explanations
-from archreactor_tutor.asm import explain_asm
+from archreactor_tutor.asm import explain_asm, explain_encoded_asm
 
 
 @pytest.mark.parametrize('text,category', [
@@ -29,6 +29,34 @@ def test_source_comment_context_and_strings():
     lines = compile_explanations(source, 'c', None)['c_lines']
     assert [item['explanation']['category'] for item in lines] == ['comment', 'comment', 'comment', 'declaration', 'assignment', 'call']
     assert lines[-1]['text'] == 'puts("// literal");'
+
+
+@pytest.mark.parametrize('text,category', [
+    ('puts("x++;");', 'call'), ('puts("--; ++;");', 'call'),
+    ('x = y++;', 'assignment'), ('*p = --x;', 'assignment'),
+    ('f(x++);', 'call'), ('++x;', 'increment'), ('values[i]--;', 'increment'),
+])
+def test_increment_tokens_in_strings_are_not_executed_and_assignments_keep_their_role(text, category):
+    assert explain(ExplainItem(kind='c', text=text)).category == category
+
+
+@pytest.mark.parametrize('text', ['fence', 'fence iorw, iorw', 'ebreak'])
+def test_standard_environment_instructions_do_not_claim_core_execution_support(text):
+    result = explain_asm(text)
+    assert result.supported is False and result.category == 'unsupported'
+    assert '현재 ArchReactor CORE에서는 실행을 지원하지 않습니다.' in result.summary
+    assert explain_asm('ecall').supported is True
+
+
+def test_srai_uses_encoded_shift_amount_instead_of_core_sign_extended_i_field():
+    result = explain_encoded_asm('srai a0, a1, 1026', '0x4025D513')
+    assert result.supported and result.opcode == 'srai'
+    assert result.reads == ['x11'] and result.writes == ['x10']
+    assert result.operands == 'x10, x11, 2'
+    assert '2비트' in result.summary and '명령어 구분 비트' in result.detail
+    assert '1026' not in result.operation
+    assert explain_encoded_asm('srai a0, a1, 2', '0x4025D513').operands == 'a0, a1, 2'
+    assert not explain_encoded_asm('srai a0, a1, 1026', '0x0025D513').supported
 
 
 def test_standalone_comments_and_function_pointer_declarations():

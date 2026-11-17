@@ -134,11 +134,11 @@ def explain_c(raw: str, *, cleaned: str | None = None) -> RuleExplanation:
             summary = f"'{initializer[1].strip()}'의 값으로 '{label}'을 초기화합니다."
         return out(category, title, summary, detail)
 
-    if re.match(r"^(?:\+\+|--)", line) or re.search(r"(?:\+\+|--)\s*;", line):
-        return out("increment", "증가/감소", "값을 1 증가 또는 감소시킵니다.", "전위와 후위는 표현식이 돌려주는 값이 다릅니다. 결과가 사용되는지에 따라 생성되는 명령어가 달라집니다.")
     syntax = re.sub(r'"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\'', '""', line)
     if re.search(r"(?:\+=|-=|\*=|/=|%=|<<=|>>=|&=|\|=|\^=|(?<![=!<>])=(?!=))", syntax):
         return out("assignment", "대입/계산", "계산한 값을 왼쪽 대상에 반영합니다.", "왼쪽 대상은 변수·배열 원소·포인터 역참조일 수 있습니다. 모든 대입이 반드시 메모리 store를 만드는 것은 아닙니다. /와 %의 C 정의되지 않은 동작은 RV32M 하드웨어의 특수 결과와 구분해야 합니다.")
+    if re.match(r"^(?:\+\+|--)", syntax) or re.search(r"(?:\+\+|--)\s*;", syntax):
+        return out("increment", "증가/감소", "값을 1 증가 또는 감소시킵니다.", "전위와 후위는 표현식이 돌려주는 값이 다릅니다. 결과가 사용되는지에 따라 생성되는 명령어가 달라집니다.")
     call = re.match(r"^([A-Za-z_]\w*)\s*\(", line)
     if call:
         return out("call", "함수 호출", f"'{call[1]}' 함수를 호출합니다.", "a0~a7와 필요시 스택으로 인자를 전달할 수 있습니다. 인라인·꼬리 호출 최적화 때문에 call/ret이 없을 수도 있습니다.")
