@@ -22,6 +22,9 @@ def instruction_format(raw):
     if code == 0x33:
         name, description = 'R', '레지스터 두 개를 입력으로 사용하고 결과를 목적지 레지스터에 기록합니다. M 확장도 같은 R형 배치를 사용합니다.'
         layout = [('funct7', 31, 25), *base, *common]
+    elif code == 0x0F and funct3 == 0:
+        name, description = 'I', 'FENCE는 I형 배치의 상위 필드를 fm·pred·succ로 나누어 앞뒤 메모리 접근의 관찰 순서를 지정합니다. 산술 즉치값이 아닙니다. 현재 CORE는 실행을 지원하지 않습니다.'
+        layout = [('fm', 31, 28), ('pred', 27, 24), ('succ', 23, 20), ('rs1', 19, 15), *common]
     elif code in (0x03, 0x13, 0x67, 0x73):
         name, description = 'I', '12비트 즉치 필드와 기준 레지스터를 사용합니다. 산술·로드·간접 점프·SYSTEM은 같은 비트 배치를 서로 다르게 해석합니다.'
         if code == 0x13 and ((funct3 == 1 and funct7 == 0) or (funct3 == 5 and funct7 in (0, 32))):
@@ -67,8 +70,10 @@ def instruction_format(raw):
         width = high - low + 1
         value = (word >> low) & ((1 << width) - 1)
         role = ROLES.get(field, '즉치값을 구성하는 비트 조각')
-        if code == 0x73 and field in ('rs1', 'rd'):
+        if code in (0x73, 0x0F) and field in ('rs1', 'rd'):
             role = 'SYSTEM 명령 식별에 사용되는 고정 필드; 일반 레지스터 접근이 아님'
+        if code == 0x0F:
+            role = {'fm': '메모리 순서 모드 (일반 FENCE는 0)', 'pred': '앞선 접근 집합: I 입력·O 출력·R 읽기·W 쓰기', 'succ': '뒤따르는 접근 집합: I 입력·O 출력·R 읽기·W 쓰기', 'rs1': '기본 FENCE에서 0으로 인코딩하는 예약 필드; 입력을 읽지 않음', 'rd': '기본 FENCE에서 0으로 인코딩하는 예약 필드; 결과를 쓰지 않음'}.get(field, role)
         fields.append({'name': field, 'high': high, 'low': low, 'width': width, 'value': value,
                        'binary': f'{value:0{width}b}', 'role': role})
     return {'name': name, 'word': f'0x{word:08X}', 'width_bits': 32,
