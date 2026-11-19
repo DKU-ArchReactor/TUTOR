@@ -11,14 +11,6 @@ def instruction_walkthrough(explanation, parts):
     memory = explanation.get('memory')
     control = explanation.get('control_flow') or {}
     op = explanation.get('opcode')
-    if op in ('lui', 'auipc') and len(parts) == 2:
-        return [{'title': '상위 필드 읽기', 'text': f'{parts[1]}의 20비트 상위 필드를 12비트 왼쪽으로 옮겨 하위 12비트가 0인 값을 만듭니다.'},
-                {'title': '값 만들기', 'text': '현재 명령어의 PC에 그 값을 더합니다.' if op == 'auipc' else '만든 상위 값을 결과로 사용합니다. 입력 레지스터를 읽지 않습니다.'},
-                {'title': '결과 기록', 'text': '목적지가 x0이므로 기록을 버립니다.' if register(parts[0]) == 'x0' else f'{parts[0]}에 32비트 결과를 기록합니다.'}]
-    if op == 'ecall':
-        return [{'title': '요청 해석', 'text': 'ECALL을 실행 환경 요청으로 해석합니다. 일반 산술 연산이 아닙니다.'},
-                {'title': '서비스 선택', 'text': 'ArchReactor는 a7의 서비스 번호와 필요할 때 a0의 인자를 참조합니다. 이 규약은 ISA 명령어 필드와 별개입니다.'},
-                {'title': '결과 확인', 'text': '출력·종료 여부는 서비스 번호와 실제 실행 결과에서 확인합니다. 모든 ECALL이 프로그램 종료인 것은 아닙니다.'}]
     if memory and len(parts) == 2:
         load = memory['access'] == 'load'
         return [
@@ -82,22 +74,6 @@ def instruction_context(entry, previous_writes):
             principle += ' s32는 레지스터 값을 부호 있는 32비트 정수로 해석한다는 뜻입니다.'
         elif 'u32(' in control['condition']:
             principle += ' u32는 레지스터 값을 부호 없는 32비트 정수로 해석한다는 뜻입니다.'
-    elif explanation.get('opcode') in ('lui', 'auipc') and len(parts) == 2:
-        roles = [{'operand': parts[0], 'role': '주소 또는 상수 계산의 결과 목적지; x0 쓰기는 버림'},
-                 {'operand': parts[1], 'role': '12비트 왼쪽으로 이동할 20비트 상위 필드'}]
-        principle = '상위 필드와 최종 32비트 값을 구분합니다. AUIPC는 현재 명령어의 PC 전체에 더하며, 이 값이 반드시 C 변수의 주소인 것은 아닙니다.'
-    elif explanation.get('opcode') in ('jal', 'jalr'):
-        roles = [{'operand': parts[0], 'role': 'PC + 4를 기록할 링크 목적지; x0이면 기록을 버림'}]
-        if explanation['opcode'] == 'jalr' and len(parts) == 3:
-            roles += [{'operand': parts[1], 'role': '이동 주소 계산에 사용할 실행 전 기준 레지스터'},
-                      {'operand': parts[2], 'role': '기준 레지스터에 더할 부호 있는 12비트 오프셋'}]
-        elif explanation['opcode'] == 'jal' and len(parts) >= 2:
-            roles.append({'operand': parts[-1], 'role': '현재 PC 기준 점프 변위 또는 목적지 레이블'})
-        principle = '점프 목적지와 복귀 주소 PC + 4는 서로 다른 값입니다. JALR는 기준 레지스터의 기존 값으로 목표를 계산하고 최하위 비트를 0으로 만듭니다.'
-    elif explanation.get('opcode') == 'ecall':
-        roles = [{'operand': 'a7', 'role': 'ArchReactor 실행 환경의 서비스 번호'},
-                 {'operand': 'a0', 'role': '선택한 서비스가 요구하는 경우의 출력 인자'}]
-        principle = '이 피연산자는 ECALL 기계어의 rs1·rd 필드가 아니라 실행 환경의 약속입니다. 종료·출력 여부는 실제 서비스와 실행 이벤트를 확인합니다.'
     connections = []
     for operand in explanation['reads']:
         producer = previous_writes.get(operand)
