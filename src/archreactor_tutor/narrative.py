@@ -6,10 +6,6 @@ from .concepts import instruction_concepts
 
 def instruction_walkthrough(explanation, parts):
     """Read the selected operands, without inventing dynamic values or C bindings."""
-    if explanation.get('opcode') in ('fence', 'ebreak'):
-        return [{'title': '표준 의미', 'text': '앞선 접근과 뒤따르는 접근의 관찰 순서를 제약합니다. 데이터 자체를 복사하거나 모든 캐시를 비우는 명령은 아닙니다.' if explanation['opcode'] == 'fence' else '디버거 등에 처리를 넘기는 breakpoint 예외를 요청합니다. 일반 함수 복귀가 아닙니다.'},
-                {'title': '형식 구분', 'text': 'FENCE는 I형 배치에서 fm·pred·succ 필드를 해석합니다.' if explanation['opcode'] == 'fence' else 'EBREAK는 I형 SYSTEM 인코딩 0x00100073입니다. rs1·rd는 일반 입력·결과가 아닙니다.'},
-                {'title': '실행 지원', 'text': '현재 ArchReactor CORE에서는 실행을 지원하지 않습니다. 여기서는 표준 명령어의 의미만 설명합니다.'}]
     if not explanation.get('supported', True):
         return []
     memory = explanation.get('memory')
@@ -98,9 +94,6 @@ def instruction_context(entry, previous_writes):
         elif explanation['opcode'] == 'jal' and len(parts) >= 2:
             roles.append({'operand': parts[-1], 'role': '현재 PC 기준 점프 변위 또는 목적지 레이블'})
         principle = '점프 목적지와 복귀 주소 PC + 4는 서로 다른 값입니다. JALR는 기준 레지스터의 기존 값으로 목표를 계산하고 최하위 비트를 0으로 만듭니다.'
-    elif explanation.get('opcode') in ('fence', 'ebreak'):
-        roles = [{'operand': 'pred / succ' if explanation['opcode'] == 'fence' else 'SYSTEM', 'role': '순서를 제약할 앞선/뒤따르는 접근 집합' if explanation['opcode'] == 'fence' else '고정 인코딩으로 breakpoint 예외를 요청'}]
-        principle = 'RV32I 표준의 설명과 현재 CORE의 실행 지원은 별개입니다. 이 명령어의 실행 결과를 추정하지 않습니다.'
     elif explanation.get('opcode') == 'ecall':
         roles = [{'operand': 'a7', 'role': 'ArchReactor 실행 환경의 서비스 번호'},
                  {'operand': 'a0', 'role': '선택한 서비스가 요구하는 경우의 출력 인자'}]

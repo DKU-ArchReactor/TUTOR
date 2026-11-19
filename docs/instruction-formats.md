@@ -23,21 +23,6 @@ LUI/AUIPC, JAL/JALR, ECALL의 처리 순서·피연산자 역할 설명도 보�
 
 ## 검증 범위
 
-RV32I v2.1 표준의 40개 명령어에 대해 포맷·피연산자 역할·3단계 이상의 설명을 검사합니다. FENCE와 EBREAK도 표준 의미를 설명하지만 현재 CORE의 실행 미지원 표시를 유지합니다. FENCE의 fm/pred/succ는 산술 즉치값과 구분합니다. R/I/S/U 기본 배치와 B/J 즉치 변형을 설명합니다.
-
-| 포맷 | RV32I 명령어 |
-| --- | --- |
-| R | add, sub, sll, slt, sltu, xor, srl, sra, or, and |
-| I 산술 | addi, slti, sltiu, xori, ori, andi, slli, srli, srai |
-| I 읽기·점프 | lb, lh, lw, lbu, lhu, jalr |
-| I 특수 해석 | fence, ecall, ebreak |
-| S | sb, sh, sw |
-| B | beq, bne, blt, bge, bltu, bgeu |
-| U | lui, auipc |
-| J | jal |
-
-현재 CORE decoder의 지원 명령어는 RV32I 38개와 M 확장 8개를 합한 46개입니다. 별도로 이 46개의 포맷·피연산자 역할·3단계 이상의 설명도 대조했습니다. 이는 전체 RISC-V ISA를 지원한다는 의미는 아닙니다.
-
-근거: [RISC-V RV32I v2.1 공식 명세](https://docs.riscv.org/reference/isa/v20260120/unpriv/rv32.html).
+현재 CORE decoder의 지원 명령어 46개를 대조했을 때 포맷·피연산자 역할·3단계 이상의 설명이 모두 존재합니다. 포맷별로 R 18, I 16, S 3, B 6, U 2, J 1개입니다. 이는 전체 RISC-V ISA를 지원한다는 의미는 아닙니다.
 
 `python -m pytest -q`와 `python scripts/check-contract.py`를 실행합니다. 포맷 테스트는 비트 중복·누락 없이 원래 기계어를 복원하는지, 음수 변위·시프트·SYSTEM 구분을 확인합니다. 실제 BE/CORE를 사용한 시연 38건도 통과했습니다. 새 포맷의 운영 제공 여부는 이 변경을 배포한 후 확인해야 합니다.

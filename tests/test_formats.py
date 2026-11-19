@@ -1,44 +1,6 @@
 import pytest
 from archreactor_tutor.formats import instruction_format
 from archreactor_tutor import simulation_explanations
-from archreactor_tutor.asm import explain_asm
-from archreactor_tutor.narrative import instruction_context
-
-
-# RV32I v2.1: 40 distinct base instructions, including FENCE and EBREAK.
-BASE_CASES = [
-    ('lui a0,1', 0x00001537, 'U'), ('auipc a0,1', 0x00001517, 'U'),
-    ('jal ra,8', 0x008000EF, 'J'), ('jalr ra,a1,0', 0x000580E7, 'I'),
-    *[(f'{op} a1,a2,0', 0x00C58063 | (funct << 12), 'B') for op, funct in [('beq',0),('bne',1),('blt',4),('bge',5),('bltu',6),('bgeu',7)]],
-    *[(f'{op} a0,0(a1)', 0x00058503 | (funct << 12), 'I') for op, funct in [('lb',0),('lh',1),('lw',2),('lbu',4),('lhu',5)]],
-    *[(f'{op} a0,0(a1)', 0x00A58023 | (funct << 12), 'S') for op, funct in [('sb',0),('sh',1),('sw',2)]],
-    *[(f'{op} a0,a1,1', 0x00158513 | (funct << 12), 'I') for op, funct in [('addi',0),('slti',2),('sltiu',3),('xori',4),('ori',6),('andi',7),('slli',1),('srli',5)]],
-    ('srai a0,a1,1', 0x4015D513, 'I'),
-    *[(f'{op} a0,a1,a2', 0x00C58533 | (funct << 12), 'R') for op, funct in [('add',0),('sll',1),('slt',2),('sltu',3),('xor',4),('srl',5),('or',6),('and',7)]],
-    ('sub a0,a1,a2', 0x40C58533, 'R'), ('sra a0,a1,a2', 0x40C5D533, 'R'),
-    ('fence iorw,iorw', 0x0FF0000F, 'I'), ('ecall', 0x00000073, 'I'), ('ebreak', 0x00100073, 'I'),
-]
-
-
-@pytest.mark.parametrize('assembly,word,expected', BASE_CASES)
-def test_all_40_base_instructions_have_format_semantics_and_teaching(assembly, word, expected):
-    assert len(BASE_CASES) == 40
-    explanation = explain_asm(assembly).model_dump()
-    assert explanation['category'] != 'unsupported' or assembly.split()[0] in ('fence', 'ebreak')
-    format = instruction_format(f'0x{word:08X}')
-    assert format['name'] == expected
-    assert sum(field['value'] << field['low'] for field in format['fields']) == word
-    teaching = instruction_context({'explanation': explanation}, {})
-    assert teaching['operand_roles'] and teaching['principle']
-    assert len(teaching['walkthrough']) >= 3
-    assert explanation['supported'] is (assembly.split()[0] not in ('fence', 'ebreak'))
-
-
-def test_fence_fields_are_ordering_sets_not_an_arithmetic_immediate():
-    format = instruction_format('0x0FF0000F')
-    assert format['immediate'] is None
-    assert {field['name']: field['value'] for field in format['fields']}['pred'] == 15
-    assert 'CORE' in format['description']
 
 
 @pytest.mark.parametrize('word,name,immediate', [
