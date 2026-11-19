@@ -2,6 +2,7 @@
 from collections import Counter
 from .asm import explain_encoded_asm
 from .events import obj, pc
+from .formats import instruction_format
 
 
 def source_mapping(source, result, steps, source_file=None):
@@ -39,6 +40,7 @@ def source_mapping(source, result, steps, source_file=None):
             reason = 'missing_source_location'
         explanation = explain_encoded_asm(entry['assembly'], entry.get('raw_instruction')).model_dump()
         record = {
+            'instruction_format': instruction_format(entry.get('raw_instruction')),
             'pc': address, 'raw_instruction': entry.get('raw_instruction'), 'text': entry['assembly'],
             'source_line': number if valid else None, 'reported_source_line': number,
             'source_file': file_name, 'source_column': entry.get('source_column'),
