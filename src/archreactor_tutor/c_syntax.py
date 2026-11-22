@@ -131,7 +131,10 @@ def explain_c(raw: str, *, cleaned: str | None = None) -> RuleExplanation:
         initializer = re.fullmatch(r"[A-Za-z_]\w*\s*=\s*(.+);", rest)
         summary = f"'{label}'의 타입과 {'초기값을 지정' if category == 'initialization' else '사용을 선언'}합니다."
         if initializer:
-            summary = f"'{initializer[1].strip()}'의 값으로 '{label}'을 초기화합니다."
+            expression = initializer[1].strip()
+            summary = f"{expression}의 값을 계산해 변수 {label}의 초기값으로 사용합니다."
+            if re.fullmatch(r"[-+]?\d+[uUlL]*", expression):
+                summary = f"변수 {label}을 선언하고 초기값을 {expression}로 설정합니다."
         return out(category, title, summary, detail)
 
     syntax = re.sub(r'"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\'', '""', line)
