@@ -205,7 +205,9 @@ def explain_asm(raw: str) -> RuleExplanation:
                 return invalid("상위 즉치값 또는 재배치 표현식을 확인하세요.")
         registers(writes=(parts[0],))
         operation = f"{parts[0]} = " + ("PC + " if op == "auipc" else "") + f"({parts[1]} << 12)"
-        return finish("address", "PC 상대 주소 계산" if op == "auipc" else "상위 즉치값 적재", operation, operation,
+        summary = (f"현재 명령어 주소(PC)에 명령어의 숫자를 12비트 왼쪽으로 옮긴 값을 더해 {parts[0]}에 저장합니다."
+                   if op == 'auipc' else f"명령어의 숫자를 {parts[0]}의 상위 20비트에 넣고, 하위 12비트는 0으로 채웁니다.")
+        return finish("address", "PC 상대 주소 계산" if op == "auipc" else "상위 즉치값 적재", summary, operation,
                       ("auipc는 현재 PC 전체 값에 상위 즉치값을 더합니다. PC 상위 비트만 더하는 연산이 아닙니다." if op == "auipc" else "상위 20비트를 설정하고 하위 12비트는 0으로 만듭니다.", "심볼·재배치 표현식의 실제 주소는 링크 결과와 코드 매핑을 확인합니다."))
 
     if op in ("jal", "jalr"):
@@ -295,6 +297,6 @@ def explain_asm(raw: str) -> RuleExplanation:
             meaning = '실행을 중단하고 디버거 등에 제어를 넘기는 환경 예외 요청' if op == 'ebreak' else '메모리 접근의 관찰 순서를 제약하는 명령어'
             return finish('unsupported', 'CORE 실행 미지원', f'{op}는 {meaning}입니다. 현재 ArchReactor CORE에서는 실행을 지원하지 않습니다.',
                           notes=('RISC-V 표준 명령어의 의미와 이 시뮬레이터의 실행 지원 범위는 다릅니다. CORE는 FENCE와 EBREAK를 지원하지 않습니다.',))
-        return finish("environment", "실행 환경 요청", f"{op} 명령어입니다.", notes=("ecall 번호·출력·종료는 실행 환경의 규약에 따르며, RISC-V ISA 자체가 a7=10을 종료로 정의하지 않습니다.",))
+        return finish("environment", "실행 환경에 서비스 요청", "프로그램이 실행 환경에 서비스를 요청합니다. 화면 출력이나 실행 종료처럼 프로그램 바깥의 도움이 필요할 때 사용합니다.", notes=("CPU는 ECALL 환경 호출 예외를 발생시켜 실행 환경에 처리를 넘깁니다. 어떤 서비스를 요청하는지는 운영체제나 시뮬레이터의 규약으로 정합니다.", "ecall 번호·출력·종료는 실행 환경의 규약에 따르며, RISC-V ISA 자체가 a7=10을 종료로 정의하지 않습니다."))
     result.supported, result.evidence_level = False, "unknown"
     return finish("unsupported", "지원 범위 확인 필요", f"'{op}'에 대한 RV32IM 상세 해설이 없습니다.", notes=("RV64·부동소수점·특권 명령어 등을 RV32IM 지원 명령어로 단정하지 않습니다.",))
