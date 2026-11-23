@@ -20,7 +20,7 @@ def instruction_walkthrough(explanation, parts):
         ]
     if control.get('conditional'):
         return [{'title': '값 읽기', 'text': '비교에 사용할 레지스터 값을 읽습니다.'},
-                {'title': '조건 검사', 'text': f"조건식 {control['condition']}을 검사합니다."},
+                {'title': '조건 검사', 'text': explanation['summary']},
                 {'title': '다음 위치', 'text': '참이면 분기 목적지로, 거짓이면 다음 명령어로 진행합니다. 실제 선택은 실행 이력에서 확인합니다.'}]
     if explanation['category'] in ('arithmetic', 'stack') and len(parts) == 3:
         rhs = f'{parts[2]}에 든 값' if register(parts[2]) else f'명령어에 적힌 숫자 {parts[2]} (즉치값)'
@@ -69,7 +69,7 @@ def instruction_context(entry, previous_writes):
     elif control.get('conditional') and parts:
         roles = [{'operand': operand, 'role': '비교에 사용할 레지스터 값'} for operand in parts[:-1]]
         roles.append({'operand': parts[-1], 'role': '분기 조건이 참일 때의 목적지'})
-        principle = f"분기 조건은 {control['condition']}입니다. 조건이 거짓이면 현재 명령어 다음 PC + 4로 진행합니다."
+        principle = explanation['summary']
         if 's32(' in control['condition']:
             principle += ' s32는 레지스터 값을 부호 있는 32비트 정수로 해석한다는 뜻입니다.'
         elif 'u32(' in control['condition']:

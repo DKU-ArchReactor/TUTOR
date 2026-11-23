@@ -135,7 +135,8 @@ def explain_asm(raw: str) -> RuleExplanation:
                 notes = (("부호 없는" if unsigned else "부호 있는") + " 정수 나눗셈입니다. 부호 있는 몫은 0 방향으로 절삭하며 나머지의 부호는 피제수를 따릅니다.",
                          "0으로 나누면 몫은 0xFFFFFFFF, 나머지는 피제수입니다. RV32M은 이 경우 산술 예외를 발생시키지 않습니다.",
                          "부호 있는 INT_MIN / -1의 몫은 INT_MIN, 나머지는 0입니다.")
-            return finish("arithmetic", "RV32M 곱셈·나눗셈", operation, operation, notes)
+            summary = (f"{rs1}와 {rhs}를 곱한 결과의 {'상위' if op.startswith('mulh') else '하위'} 32비트를 {rd}에 저장합니다." if op.startswith('mul') else f"{rs1}를 {rhs}로 나눈 {'몫' if op.startswith('div') else '나머지'}를 {rd}에 저장합니다. 두 입력은 {'부호 없는' if op.endswith('u') else '부호 있는'} 정수로 해석합니다.")
+            return finish("arithmetic", "RV32M 곱셈·나눗셈", summary, operation, notes)
         base = IMMEDIATE_OPS.get(op, op)
         symbol, title = REGISTER_OPS[base]
         operation = f"{rd} = {rs1} {symbol} {rhs}"
@@ -149,7 +150,7 @@ def explain_asm(raw: str) -> RuleExplanation:
             notes.append("비교 조건이 참이면 1, 거짓이면 0을 기록합니다.")
         if op == "addi" and register(rd) == register(rs1) == "x2":
             notes.append("sp 조정은 보통 스택 프레임 확보·반환에 쓰이지만, 이 명령어만으로 함수 시작·끝을 확정할 수 없습니다.")
-            return finish("stack", "스택 포인터 조정", operation, operation, notes)
+            return finish("stack", "스택 포인터 조정", f"현재 sp 값에 {rhs}를 더해 sp를 갱신합니다. 음수를 더하면 주소가 작아지고, 양수를 더하면 주소가 커집니다.", operation, notes)
         summary = f"{rs1}와 {rhs}의 {title} 결과를 {rd}에 기록합니다."
         if base in ('slt', 'sltu'):
             summary = f"{rs1}가 {rhs}보다 작으면 {rd}에 1, 아니면 0을 기록합니다."
@@ -172,7 +173,7 @@ def explain_asm(raw: str) -> RuleExplanation:
         registers((base,) if load else (parts[0], base), (parts[0],) if load else ())
         expression = f"u32({base} + {offset})"
         result.memory = {"access": "load" if load else "store", "width_bits": width, "extension": extension, "address_expression": expression}
-        notes = [f"유효 주소는 {expression}입니다. 주소를 추정해 스택·전역 변수로 단정하지 않습니다.", f"{width // 8}바이트를 접근하며 ArchReactor는 little-endian으로 바이트를 배치합니다."]
+        notes = [f"{base}에 담긴 주소에 {offset}바이트를 더해 접근 주소를 구합니다. 주소 계산 결과는 32비트로 유지합니다.", f"{width // 8}바이트를 접근하며, 여러 바이트 값은 낮은 주소부터 하위 바이트를 저장합니다(little-endian)."]
         if load:
             notes.append({"sign": "읽은 값의 부호 비트를 확장해 32비트로 만듭니다.", "zero": "상위 비트를 0으로 채워 32비트로 만듭니다.", "none": "32비트 워드를 그대로 읽습니다."}[extension])
         else:
@@ -192,7 +193,12 @@ def explain_asm(raw: str) -> RuleExplanation:
         condition = f"{interpretation}({rs1}) {symbol} {interpretation}({rs2})"
         registers((rs1, rs2))
         result.control_flow = {"conditional": True, "condition": condition, "target_expression": pc_target(target), "link_register": None}
-        return finish("branch", "조건 분기", f"{condition}이면 {target}로 분기합니다.", notes=("분기 즉치값은 현재 명령어 PC 기준 상대 오프셋입니다. 레이블은 어셈블러가 실제 오프셋으로 변환합니다.", "조건이 거짓이면 다음 명령어 PC + 4로 진행합니다. 실제 taken 여부·플러시는 CORE 이벤트를 사용합니다. 예측 실패로 단정하지 않습니다."))
+        relation = {'beq': '같으면', 'bne': '다르면', 'blt': '작으면', 'bltu': '작으면', 'bge': '크거나 같으면', 'bgeu': '크거나 같으면'}[op]
+        summary = f"{rs1}의 값이 {rs2}의 값과 {relation}" if op in ('beq', 'bne') else f"{rs1}의 값이 {rs2}의 값보다 {relation}"
+        summary += f" 분기 목적지 {target}로 이동합니다. 조건이 거짓이면 바로 다음 명령어로 진행합니다."
+        if op not in ('beq', 'bne'):
+            summary += f" 두 값은 {'부호 있는' if signed else '부호 없는'} 정수로 비교합니다."
+        return finish("branch", "조건 분기", summary, notes=("분기 목적지의 숫자는 현재 명령어 주소에서 바이트 단위로 얼마나 이동할지를 나타냅니다. 레이블은 어셈블러가 실제 거리로 변환합니다.", "조건이 거짓이면 현재 주소보다 4바이트 뒤의 명령어로 진행합니다."))
 
     if op in ("lui", "auipc"):
         if len(parts) != 2 or not register(parts[0]):
@@ -235,8 +241,10 @@ def explain_asm(raw: str) -> RuleExplanation:
             reads, expression = (rs1,), f"({base} + {imm}) & ~1"
         registers(reads, (rd,))
         result.control_flow = {"conditional": False, "condition": None, "target_expression": expression, "link_register": register(rd) if register(rd) != "x0" else None}
-        return finish("control", "점프 및 복귀 주소 기록", f"PC를 {expression}로 변경합니다.", f"{rd} = PC + 4; PC = {expression}",
-                      ("복귀 주소는 현재 명령어 주소 + 4입니다. rd가 x0이면 링크 값은 버려집니다.", "jalr의 목표는 목적지 레지스터를 쓰기 전의 기준 레지스터 값으로 계산합니다. old는 명령어 실행 전 값이며 목표 주소의 최하위 비트는 0으로 만듭니다. 실제 목표·분기/정렬 오류는 CORE 이벤트에서 확인합니다."))
+        summary = (f"현재 명령어 주소에서 {target}만큼 이동한 위치로 점프합니다." if op == 'jal' and re.fullmatch(r'-?(?:0[xX][0-9a-fA-F]+|\d+)', target) else f"{target} 레이블이 가리키는 위치로 점프합니다.") if op == 'jal' else f"명령어 실행 전 {rs1} 값에 {imm}바이트를 더해 이동할 주소를 구합니다. 그 주소의 맨 오른쪽 비트를 0으로 만든 뒤, 해당 주소로 점프합니다."
+        summary += (" 복귀 주소는 저장하지 않습니다." if register(rd) == 'x0' else f" 바로 다음 명령어의 주소를 {rd}에 저장해 돌아올 위치를 남깁니다.")
+        return finish("control", "점프 및 복귀 주소 기록", summary, f"{rd} = PC + 4; PC = {expression}",
+                      ("복귀 주소는 현재 명령어보다 4바이트 뒤의 주소입니다. 목적지가 x0이면 이 주소는 저장하지 않습니다.", "목적지와 기준 레지스터가 같아도, 이동 주소 계산에는 덮어쓰기 전의 값을 사용합니다. 맨 오른쪽 비트를 지우는 것은 주소를 짝수로 맞추는 동작이며, 4바이트 정렬까지 보장하지는 않습니다."))
 
     if op in ALIASES:
         conditional_aliases = {

@@ -156,7 +156,8 @@ def test_static_branch_never_claims_it_was_taken(text):
     result = explain_asm(text)
     assert result.control_flow['conditional'] is True
     assert result.writes == []
-    assert '실제 taken' in result.detail
+    assert '조건이 거짓이면' in result.summary
+    assert '로 이동했습니다' not in result.summary
 
 
 @pytest.mark.parametrize('alias,canonical', [
