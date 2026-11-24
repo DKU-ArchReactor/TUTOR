@@ -21,6 +21,15 @@ def register(token: str) -> str | None:
     return REGISTERS.get(token.strip().lower())
 
 
+def with_particle(text, closed='을', opened='를'):
+    """Attach a Korean particle to readable values, including hex annotations."""
+    ending = re.sub(r'\s*\(0[xX][\da-fA-F]+\)$', '', str(text)).rstrip()[-1:]
+    final = (ord(ending) - 0xAC00) % 28 if ending and '가' <= ending <= '힣' else None
+    has_final = final != 0 if final is not None else ending in '013678'
+    rieul = final == 8 if final is not None else ending in '178'
+    return str(text) + (closed if has_final and not (closed == '으로' and rieul) else opened)
+
+
 def pc_target(target: str) -> str:
     """Numeric displacements are PC-relative; labels name the resolved target."""
     try:
@@ -52,18 +61,29 @@ def explain_encoded_asm(text: str, raw_instruction) -> RuleExplanation:
                         return displayed
                 except ValueError:
                     pass
-            note = f'기계어 {raw_instruction}의 실제 시프트 크기는 {amount}비트입니다. CORE 표시 문자열에는 명령어 구분 비트가 포함된 숫자가 나타날 수 있어, 이동 크기는 기계어의 시프트 크기 필드(비트 24~20)로 확인합니다.'
+            note = f'실제로 비트를 옮기는 크기는 {amount}칸입니다. 화면에 다른 숫자가 적혀 있어도, 실행되는 명령어 안에 들어 있는 이동 크기를 확인해서 설명합니다.'
             result.notes.append(note)
             result.detail += ' ' + note
-            result.summary += f' 기계어 기준 실제 이동 크기는 {amount}비트입니다.'
+            result.summary += f' 실제 이동 크기는 {amount}비트입니다.'
             return result
     expected = {'lui': 0x37, 'auipc': 0x17}.get(op)
     if expected is not None and word is not None and 0 <= word <= 0xFFFFFFFF and word & 0x7F == expected:
         rd, immediate = (word >> 7) & 31, word >> 12
-        result = explain_asm(f'{op} x{rd}, {immediate}')
-        note = f'기계어 {raw_instruction}의 상위 즉치 필드는 {immediate}입니다. CORE 표시 문자열은 이미 12비트 이동한 값을 사용할 수 있으므로, 연산 해설은 기계어를 기준으로 작성합니다.'
-        result.notes.append(note)
-        result.detail += ' ' + note
+        displayed = explain_asm(text)
+        destination = (displayed.operands or '').split(',')[0].strip()
+        if register(destination) != f'x{rd}':
+            destination = f'x{rd}'
+        result = explain_asm(f'{op} {destination}, {immediate}')
+        # Keep the existing structured operation stable; reading text uses aliases.
+        result.operation = explain_asm(f'{op} x{rd}, {immediate}').operation
+        try:
+            displayed_number = int((displayed.operands or '').split(',')[-1], 0)
+        except ValueError:
+            displayed_number = None
+        if displayed_number != immediate:
+            note = f'이 계산에 사용하는 숫자는 {immediate}입니다. 화면에 적힌 숫자 대신 실제로 실행되는 명령어의 숫자를 확인해서 설명합니다.'
+            result.notes.append(note)
+            result.detail += ' ' + note
         return result
     return explain_asm(text)
 
@@ -95,7 +115,7 @@ def explain_asm(raw: str) -> RuleExplanation:
 
     def invalid(reason):
         result.supported = False
-        return finish("invalid", "피연산자 확인 필요", reason, notes=("정상 명령어로 해석하지 않았습니다. 어셈블러 문법과 피연산자를 확인하세요.",))
+        return finish("invalid", "명령어에 적힌 항목을 확인해 주세요", reason, notes=("명령어 이름 뒤에 적은 레지스터·숫자·주소의 개수와 순서를 확인해 주세요.",))
 
     if not text:
         return finish("empty", "빈 어셈블리 줄", "실행할 명령어가 없습니다.")
@@ -106,7 +126,7 @@ def explain_asm(raw: str) -> RuleExplanation:
 
     if op in REGISTER_OPS or op in IMMEDIATE_OPS or op in MULTIPLY_OPS:
         if len(parts) != 3 or not register(parts[0]) or not register(parts[1]):
-            return invalid("목적지·첫 피연산자 레지스터와 세 번째 피연산자가 필요합니다.")
+            return invalid("결과를 넣을 레지스터, 값을 읽을 레지스터, 함께 계산할 숫자 또는 레지스터가 순서대로 필요합니다.")
         rd, rs1, rhs = parts
         immediate = op in IMMEDIATE_OPS
         if not immediate and not register(rhs):
@@ -115,34 +135,36 @@ def explain_asm(raw: str) -> RuleExplanation:
             try:
                 imm = int(rhs, 0)
             except ValueError:
-                return invalid("즉치값은 정수여야 합니다. 재배치 표현식은 이 정적 해설에서 판정하지 않습니다.")
+                return invalid("명령어에 직접 적는 숫자는 정수여야 합니다. 이름으로 적힌 주소는 프로그램을 완성할 때 실제 숫자가 정해져야 해석할 수 있습니다.")
             if op in ("slli", "srli", "srai") and not 0 <= imm < 32:
                 return invalid("RV32 즉치 시프트 크기는 0~31이어야 합니다.")
             if op not in ("slli", "srli", "srai") and not -2048 <= imm <= 2047:
-                return invalid("I형 산술 즉치값은 부호 있는 12비트 범위여야 합니다.")
+                return invalid("이 명령어에 직접 적을 수 있는 숫자는 -2048부터 2047까지입니다. 범위를 넘는 수는 여러 명령어를 이용해 준비해야 합니다.")
         registers((rs1,) if immediate else (rs1, rhs), (rd,))
         if op in MULTIPLY_OPS:
             if op == "mul":
                 operation = f"{rd} = low32({rs1} × {rhs})"
-                notes = ("곱의 하위 32비트를 기록합니다. 상위 비트는 저장하지 않습니다.",)
+                notes = ("곱셈 결과가 길어져도 결과 레지스터에는 오른쪽 32비트만 담습니다. 왼쪽으로 넘친 부분은 버립니다.",)
             elif op.startswith("mulh"):
-                signs = {"mulh": "두 피연산자 모두 부호 있는 값", "mulhsu": "첫 값은 부호 있는 값, 두 번째 값은 부호 없는 값", "mulhu": "두 값 모두 부호 없는 값"}[op]
+                signs = {"mulh": "두 입력을 모두 음수가 될 수 있는 숫자", "mulhsu": "첫 입력은 음수가 될 수 있는 숫자, 두 번째 입력은 음수 없는 숫자", "mulhu": "두 입력을 모두 음수 없는 숫자"}[op]
                 operation = f"{rd} = high32({rs1} × {rhs})"
-                notes = (f"{signs}으로 해석한 64비트 곱의 상위 32비트를 기록합니다.",)
+                notes = (f"{signs}으로 읽고 곱합니다. 최대 64비트인 곱셈 결과 중 왼쪽 32비트를 선택해 결과 레지스터에 넣습니다.",)
             else:
                 unsigned = op.endswith("u")
                 operation = f"{rd} = {'quotient' if op.startswith('div') else 'remainder'}({'u32' if unsigned else 's32'}({rs1}), {'u32' if unsigned else 's32'}({rhs}))"
-                notes = (("부호 없는" if unsigned else "부호 있는") + " 정수 나눗셈입니다. 부호 있는 몫은 0 방향으로 절삭하며 나머지의 부호는 피제수를 따릅니다.",
-                         "0으로 나누면 몫은 0xFFFFFFFF, 나머지는 피제수입니다. RV32M은 이 경우 산술 예외를 발생시키지 않습니다.",
-                         "부호 있는 INT_MIN / -1의 몫은 INT_MIN, 나머지는 0입니다.")
-            summary = (f"{rs1}와 {rhs}를 곱한 결과의 {'상위' if op.startswith('mulh') else '하위'} 32비트를 {rd}에 저장합니다." if op.startswith('mul') else f"{rs1}를 {rhs}로 나눈 {'몫' if op.startswith('div') else '나머지'}를 {rd}에 저장합니다. 두 입력은 {'부호 없는' if op.endswith('u') else '부호 있는'} 정수로 해석합니다.")
+                notes = ('입력을 음수 없이 읽는 정수 나눗셈입니다. 몫의 소수 부분은 버립니다.' if unsigned else '입력을 음수가 될 수 있는 숫자로 읽고 나눕니다. 음수의 몫도 소수 부분은 0 방향으로 버립니다. 예를 들어 -7을 3으로 나누면 몫은 -2, 나머지는 -1입니다.',
+                         "CPU 명령어에서 0으로 나누면, 몫은 음수를 허용하는 명령어에서는 -1이고 음수 없이 읽는 명령어에서는 4294967295입니다. 나머지는 나누기 전 첫 번째 값 그대로입니다. C에서 0으로 나누는 코드에도 이 결과를 기대해선 안 됩니다.",
+                         "음수를 허용하는 명령어에서 가장 작은 수 -2147483648을 -1로 나누면, 양수 결과가 범위를 넘으므로 몫은 -2147483648, 나머지는 0이 됩니다.")
+            summary = (f"{rs1}와 {rhs}에 든 값을 곱해 결과의 {'왼쪽' if op.startswith('mulh') else '오른쪽'} 32비트를 {rd}에 저장합니다." if op.startswith('mul') else f"{rs1}에 든 값을 {rhs}에 든 값으로 나눈 {'몫' if op.startswith('div') else '나머지'}를 {rd}에 저장합니다. 두 입력은 {'음수 없는 숫자' if op.endswith('u') else '음수가 될 수 있는 숫자'}로 읽습니다.")
             return finish("arithmetic", "RV32M 곱셈·나눗셈", summary, operation, notes)
         base = IMMEDIATE_OPS.get(op, op)
         symbol, title = REGISTER_OPS[base]
         operation = f"{rd} = {rs1} {symbol} {rhs}"
-        notes = ["결과는 32비트로 기록합니다. 실제 기록 값과 시점은 CORE 실행 이력을 근거로 확인합니다."]
+        notes = ["레지스터 한 개에는 32비트가 들어갑니다. 계산 결과가 더 길면 오른쪽 32비트만 저장하고 왼쪽으로 넘친 부분은 버립니다."]
         if immediate and op not in ("slli", "srli", "srai"):
-            notes.append("즉치값은 부호 확장됩니다. sltiu도 먼저 즉치값을 부호 확장한 뒤 부호 없는 비교를 합니다.")
+            notes.append("명령어에 적힌 숫자는 계산하기 전에 32비트 크기로 맞춥니다. 음수라면 음수의 의미가 유지되도록 왼쪽 빈자리를 채웁니다.")
+            if op == 'sltiu':
+                notes.append('sltiu는 이렇게 만든 비트들을 음수 없는 숫자로 읽고 비교합니다. 예를 들어 명령어에 -1을 적으면 비교할 때는 4294967295로 읽습니다.')
         if base in ("sll", "srl", "sra"):
             notes.append("RV32 즉치 시프트 크기는 명령어에 들어 있는 0~31의 값입니다." if immediate else "RV32 레지스터 시프트는 두 번째 레지스터의 하위 5비트만 사용합니다.")
             notes.append("산술 오른쪽 시프트는 부호 비트를 채우고 논리 오른쪽 시프트는 0을 채웁니다.")
@@ -150,18 +172,32 @@ def explain_asm(raw: str) -> RuleExplanation:
             notes.append("비교 조건이 참이면 1, 거짓이면 0을 기록합니다.")
         if op == "addi" and register(rd) == register(rs1) == "x2":
             notes.append("sp 조정은 보통 스택 프레임 확보·반환에 쓰이지만, 이 명령어만으로 함수 시작·끝을 확정할 수 없습니다.")
-            return finish("stack", "스택 포인터 조정", f"현재 sp 값에 {rhs}를 더해 sp를 갱신합니다. 음수를 더하면 주소가 작아지고, 양수를 더하면 주소가 커집니다.", operation, notes)
-        summary = f"{rs1}와 {rhs}의 {title} 결과를 {rd}에 기록합니다."
+            direction = '앞쪽(작은 주소)' if imm < 0 else '뒤쪽(큰 주소)'
+            return finish("stack", "스택 포인터 조정", f"스택 위치를 가리키는 sp 레지스터의 주소를 {direction}으로 {abs(imm)}바이트 옮깁니다. 바뀐 주소를 sp에 다시 저장합니다. 메모리의 데이터를 옮기는 명령어는 아닙니다.", operation, notes)
+        left, right = f'{rs1} 레지스터에 든 값', (f'명령어에 적힌 숫자 {rhs}' if immediate else f'{rhs} 레지스터에 든 값')
+        action = {
+            'add': f'{left}에 {with_particle(right)} 더합니다.',
+            'sub': f'{left}에서 {with_particle(right)} 뺍니다.',
+            'and': f'{left}과 {right}을 비트별로 비교해, 둘 다 1인 자리만 1로 만듭니다.',
+            'or': f'{left}과 {right}을 비트별로 비교해, 하나라도 1인 자리는 1로 만듭니다.',
+            'xor': f'{left}과 {right}을 비트별로 비교해, 서로 다른 자리만 1로 만듭니다.',
+        }.get(base)
+        summary = f"{action} 결과를 {rd} 레지스터에 저장합니다." if action else f"{rs1}와 {rhs}의 {title} 결과를 {rd} 레지스터에 저장합니다."
+        if base in ('sll', 'srl', 'sra'):
+            distance = f'{imm}칸' if immediate else f'{rhs} 레지스터의 하위 5비트가 나타내는 칸 수(0~31칸)'
+            direction = '왼쪽' if base == 'sll' else '오른쪽'
+            fill = '원래 맨 왼쪽의 부호 비트' if base == 'sra' else '0'
+            summary = f'{left}의 비트들을 {direction}으로 {distance} 옮기고, 빈자리는 {fill}로 채웁니다. 결과를 {rd} 레지스터에 저장합니다.'
         if base in ('slt', 'sltu'):
-            summary = f"{rs1}가 {rhs}보다 작으면 {rd}에 1, 아니면 0을 기록합니다."
+            summary = f"{left}이 {right}보다 작으면 {rd} 레지스터에 1, 아니면 0을 저장합니다. 두 입력은 {'음수를 허용하는 정수' if base == 'slt' else '0 이상의 정수'}로 해석해 비교합니다."
         return finish("arithmetic", title, summary, operation, notes)
 
     if op in LOADS or op in STORES:
         if len(parts) != 2 or not register(parts[0]):
-            return invalid("레지스터와 offset(base) 형태의 주소가 필요합니다.")
+            return invalid("데이터를 주거나 받을 레지스터와 메모리 위치가 필요합니다. 예를 들어 4(sp)는 sp에 담긴 주소보다 4바이트 뒤의 위치입니다.")
         address = re.fullmatch(r"(-?(?:0[xX][0-9a-fA-F]+|\d+))\s*\(\s*(\w+)\s*\)", parts[1])
         if not address or not register(address[2]):
-            return invalid("주소는 정수 오프셋과 기준 레지스터로 해석할 수 있어야 합니다.")
+            return invalid("메모리 위치는 4(sp)처럼 적어 주세요. 괄호 안에는 주소가 담긴 레지스터를, 밖에는 이동할 바이트 거리를 적습니다.")
         try:
             offset, base = int(address[1], 0), address[2]
         except ValueError:
@@ -180,8 +216,12 @@ def explain_asm(raw: str) -> RuleExplanation:
             notes.append(f"원본 레지스터의 하위 {width}비트만 저장합니다. Store는 레지스터에 결과를 쓰지 않습니다.")
         notes.append("실제 접근 주소·값·정렬 오류는 MEM 단계와 runtime_error 이벤트에서 확인합니다.")
         operation = f"{parts[0]} ← MEM{width}[{expression}]" if load else f"MEM{width}[{expression}] ← {parts[0]}"
-        summary = (f"{base} 기준 {offset:+d}바이트 주소에서 {width // 8}바이트를 읽어 {parts[0]}에 담습니다."
-                   if load else f"{parts[0]}의 하위 {width}비트를 {base} 기준 {offset:+d}바이트 주소에 저장합니다.")
+        location = f"{base} 레지스터에 든 주소에서 {'앞쪽으로' if offset < 0 else '뒤쪽으로'} {abs(offset)}바이트 떨어진 메모리 위치"
+        stored_part = f'값 전체({width // 8}바이트)' if width == 32 else f'값에서 오른쪽 {width}비트({width // 8}바이트)'
+        summary = (f"메모리에서 {width // 8}바이트를 읽어 {parts[0]} 레지스터에 담습니다. 읽을 곳은 {location}입니다."
+                   if load else f"{parts[0]} 레지스터의 {with_particle(stored_part)} 메모리에 복사합니다. 저장할 곳은 {location}입니다. 데이터를 준 레지스터의 값은 바뀌지 않습니다.")
+        if load and register(parts[0]) == 'x0':
+            summary = f"{location}에서 {width // 8}바이트를 읽습니다. 결과를 받는 곳이 항상 0인 x0이므로 읽은 값은 보관하지 않습니다."
         return finish("load" if load else "store", "메모리 읽기" if load else "메모리 쓰기", summary, operation, notes)
 
     if op in BRANCHES:
@@ -211,10 +251,17 @@ def explain_asm(raw: str) -> RuleExplanation:
                 return invalid("상위 즉치값 또는 재배치 표현식을 확인하세요.")
         registers(writes=(parts[0],))
         operation = f"{parts[0]} = " + ("PC + " if op == "auipc" else "") + f"({parts[1]} << 12)"
-        summary = (f"현재 명령어 주소(PC)에 명령어의 숫자를 12비트 왼쪽으로 옮긴 값을 더해 {parts[0]}에 저장합니다."
-                   if op == 'auipc' else f"명령어의 숫자를 {parts[0]}의 상위 20비트에 넣고, 하위 12비트는 0으로 채웁니다.")
+        try:
+            number = int(parts[1], 0)
+            amount = number * 4096
+            summary = (f"명령어에 적힌 {number}에 4096을 곱해 {with_particle(str(amount))} 만듭니다. 이 값을 현재 명령어의 주소에 더해 {parts[0]} 레지스터에 저장합니다."
+                       if op == 'auipc' else f"명령어에 적힌 {number}에 4096을 곱한 값 {with_particle(str(amount))} {parts[0]} 레지스터에 저장합니다.")
+            if op == 'auipc' and number == 0:
+                summary = f'현재 명령어가 놓인 주소를 {parts[0]} 레지스터에 복사합니다. 명령어에 적힌 숫자가 0이므로 주소에 더하는 값도 0입니다.'
+        except ValueError:
+            summary = f'프로그램을 만들 때 정해지는 주소 정보를 이용해 {parts[0]} 레지스터에 값을 준비합니다.'
         return finish("address", "PC 상대 주소 계산" if op == "auipc" else "상위 즉치값 적재", summary, operation,
-                      ("auipc는 현재 PC 전체 값에 상위 즉치값을 더합니다. PC 상위 비트만 더하는 연산이 아닙니다." if op == "auipc" else "상위 20비트를 설정하고 하위 12비트는 0으로 만듭니다.", "심볼·재배치 표현식의 실제 주소는 링크 결과와 코드 매핑을 확인합니다."))
+                      ("auipc는 현재 명령어의 주소를 계산에 사용합니다. 주소에 숫자를 더할 뿐, 그 주소의 메모리 내용을 읽는 것은 아닙니다." if op == "auipc" else "lui는 숫자로 값을 만들 뿐, 메모리의 내용을 읽는 명령어가 아닙니다.", "4096을 곱하는 것은 비트를 왼쪽으로 12칸 옮기는 것과 같습니다. 결과는 레지스터 크기에 맞게 오른쪽 32비트만 저장합니다."))
 
     if op in ("jal", "jalr"):
         if op == "jal":
@@ -286,7 +333,11 @@ def explain_asm(raw: str) -> RuleExplanation:
             registers((parts[1],), (parts[0],))
         elif op in ("li", "la", "lla") and parts:
             registers(writes=(parts[0],))
-        notes = [f"일반적인 확장: {expansion}." if expansion else "실제 기본 명령어 수와 확장은 즉치값·심볼·재배치·링커 완화에 따라 달라집니다.", "의사 명령어 자체가 별도의 하드웨어 연산인 것은 아닙니다. 정확한 실행은 링크된 기계어를 확인하세요."]
+        concrete = expansion
+        if concrete:
+            substitutions = {'rd': parts[0] if parts else '', 'rs': parts[1] if len(parts) > 1 else parts[0] if parts else '', 'target': parts[-1] if parts else ''}
+            concrete = re.sub(r'\b(rd|rs|target)\b', lambda match: substitutions[match[0]], concrete)
+        notes = [f"CPU가 실행할 명령어로 쓰면 {concrete}에 해당합니다." if concrete else "한 줄을 CPU가 실행할 한 개 또는 여러 개의 명령어로 바꿉니다. 숫자나 주소의 크기에 따라 필요한 명령어 수가 달라집니다.", "짧게 적는 편의 이름이며, 같은 이름의 하드웨어 장치가 따로 있는 것은 아닙니다."]
         if op in conditional_aliases:
             base, reverse = conditional_aliases[op]
             operands = parts[:-1] if len(parts) == 3 else [parts[0], 'zero']
@@ -297,14 +348,34 @@ def explain_asm(raw: str) -> RuleExplanation:
             result.control_flow = canonical.control_flow
             notes = [f'기본 명령어로 {expansion}에 해당합니다.', *canonical.notes]
             return finish('pseudo', '조건 분기 의사 명령어', canonical.summary, expansion, notes)
-        return finish("pseudo", "어셈블리 의사 명령어", f"{text}의 의미를 기본 RISC-V 명령어로 표현합니다.", expansion, notes)
+        meanings = {
+            'ret': 'ra에 기억해 둔 주소로 돌아가 실행을 이어갑니다.',
+            'nop': '프로그램의 레지스터나 메모리 값을 바꾸지 않고 이 명령어를 지나갑니다.',
+        }
+        if parts:
+            meanings.update({'j': f'{parts[0]}이 가리키는 위치로 이동합니다. 돌아올 주소는 저장하지 않습니다.',
+                             'jr': f'{parts[0]} 레지스터에 든 주소로 이동합니다. 돌아올 주소는 저장하지 않습니다.',
+                             'call': f'돌아올 주소를 ra에 기억한 뒤 {parts[-1]} 함수로 이동합니다.',
+                             'tail': f'{parts[-1]} 함수로 이동합니다. 이 이동을 위해 ra에 새로운 복귀 주소를 넣지는 않습니다.'})
+        if len(parts) == 2:
+            meanings.update({'mv': f'두 번째 항목인 {parts[1]}의 값을 읽어 맨 앞의 {parts[0]}에 복사합니다.',
+                             'li': f'명령어에 적힌 숫자 {with_particle(parts[1])} {parts[0]} 레지스터에 넣습니다.',
+                             'la': f'{parts[1]}이라는 이름이 가리키는 주소를 구해 {parts[0]}에 넣습니다.',
+                             'lla': f'{parts[1]}이라는 이름이 가리키는 주소를 구해 {parts[0]}에 넣습니다.',
+                             'not': f'{parts[1]}에 든 값의 각 비트에서 0은 1로, 1은 0으로 바꿔 {parts[0]}에 넣습니다.',
+                             'neg': f'0에서 {parts[1]}의 값을 뺀 결과를 {parts[0]}에 넣습니다.',
+                             'seqz': f'{parts[1]}의 값이 0이면 {parts[0]}에 1, 아니면 0을 넣습니다.',
+                             'snez': f'{parts[1]}의 값이 0이 아니면 {parts[0]}에 1, 0이면 0을 넣습니다.',
+                             'sltz': f'{parts[1]}의 값이 음수이면 {parts[0]}에 1, 아니면 0을 넣습니다.',
+                             'sgtz': f'{parts[1]}의 값이 0보다 크면 {parts[0]}에 1, 아니면 0을 넣습니다.'})
+        return finish("pseudo", "짧게 적는 명령어 이름 · 의사 명령어", meanings.get(op, f'{text}에 해당하는 동작을 실행합니다.'), expansion, notes)
 
     if op in ("ecall", "ebreak", "fence"):
         if op != 'ecall':
             result.supported = False
             meaning = '실행을 중단하고 디버거 등에 제어를 넘기는 환경 예외 요청' if op == 'ebreak' else '메모리 접근의 관찰 순서를 제약하는 명령어'
-            return finish('unsupported', 'CORE 실행 미지원', f'{op}는 {meaning}입니다. 현재 ArchReactor CORE에서는 실행을 지원하지 않습니다.',
-                          notes=('RISC-V 표준 명령어의 의미와 이 시뮬레이터의 실행 지원 범위는 다릅니다. CORE는 FENCE와 EBREAK를 지원하지 않습니다.',))
+            return finish('unsupported', '시뮬레이터에서 실행할 수 없는 명령어', f'{op}는 {meaning}입니다. 현재 시뮬레이터에서는 실행을 지원하지 않습니다.',
+                          notes=('RISC-V에 정의된 명령어라도 이 시뮬레이터에서 모두 실행할 수 있는 것은 아닙니다. FENCE와 EBREAK는 실행을 지원하지 않습니다.',))
         return finish("environment", "실행 환경에 서비스 요청", "프로그램이 실행 환경에 서비스를 요청합니다. 화면 출력이나 실행 종료처럼 프로그램 바깥의 도움이 필요할 때 사용합니다.", notes=("CPU는 ECALL 환경 호출 예외를 발생시켜 실행 환경에 처리를 넘깁니다. 어떤 서비스를 요청하는지는 운영체제나 시뮬레이터의 규약으로 정합니다.", "ecall 번호·출력·종료는 실행 환경의 규약에 따르며, RISC-V ISA 자체가 a7=10을 종료로 정의하지 않습니다."))
     result.supported, result.evidence_level = False, "unknown"
     return finish("unsupported", "지원 범위 확인 필요", f"'{op}'에 대한 RV32IM 상세 해설이 없습니다.", notes=("RV64·부동소수점·특권 명령어 등을 RV32IM 지원 명령어로 단정하지 않습니다.",))

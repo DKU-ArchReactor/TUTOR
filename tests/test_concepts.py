@@ -35,7 +35,8 @@ def test_examples_are_static_and_do_not_modify_observed_state():
     bundle = analyze_execution('return *p;', result)
     item = bundle['asm_instructions'][0]
     extension = next(topic for topic in item['teaching']['concepts'] if topic['id'] == 'load-extension')
-    assert '0xFFFFFFFF(-1)' in extension['example']
+    assert '음수 -1' in extension['example'] and '255' in extension['example']
+    assert '0x' not in extension['example']
     assert bundle['execution_steps'] == []
     assert item['retire_count'] == 0
 
@@ -49,7 +50,7 @@ def test_c_and_isa_rules_have_distinct_sources():
 @pytest.mark.parametrize('assembly, text', [
     ('addi a0,a1,5', '명령어에 적힌 숫자 5 (즉치값)'),
     ('add a0,a1,a2', 'a2에 든 값'),
-    ('sw a0,4(sp)', '하위 32비트'),
+    ('sw a0,4(sp)', '값 전체(4바이트)'),
     ('lh a0,0(t0)', '2바이트'),
     ('lw zero,0(t0)', '메모리 읽기·예외'),
     ('beq t0,t1,8', '실제 선택은 실행 이력'),

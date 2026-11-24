@@ -18,7 +18,7 @@ def explain(item: ExplainItem):
     if item.kind == 'crt':
         result.kind, result.category = 'crt', 'runtime_context'
         result.title = '실행 환경 문맥 확인'
-        result.detail = (f'PC {item.pc}: ' if item.pc else '') + '실행 환경 코드로 요청된 명령어입니다. main 호출·초기화 여부는 주변 코드와 심볼을 확인해야 합니다. ' + result.detail
+        result.detail = (f'명령어가 저장된 주소: {item.pc}. ' if item.pc else '') + '프로그램 시작을 준비하는 코드인지 확인하려면 앞뒤 명령어와 함수 이름을 함께 봐야 합니다. 이 명령어 하나만으로 시작 코드라고 판단할 수는 없습니다.'
     return result
 
 
@@ -54,7 +54,7 @@ def simulation_explanations(result: dict, source: str = '', source_file: str | N
         'execution_steps': steps, 'source_mapping': mapping,
         'line_explanations': lines,
         'source_sha256': sha256(source.encode()).hexdigest() if source else None,
-        'limitations': ['읽기 전용 해설이며 제출한 C/ASM을 실행하거나 CORE 상태를 변경하지 않습니다.',
+        'limitations': ['코드와 실행 결과를 설명하는 기능이며, 설명을 읽는 것만으로 프로그램의 실행 상태가 바뀌지는 않습니다.',
                         '문법 규칙은 컴파일러·완전한 C 파서를 대신하지 않습니다. 관찰 값과 정적 의미를 구분합니다.'],
     }
 

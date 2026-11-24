@@ -1,6 +1,7 @@
 """Explain actual engine events, preserving the original clock and history index."""
 from copy import deepcopy
-from .asm import REGISTER_OPS, IMMEDIATE_OPS, MULTIPLY_OPS, LOADS, STORES
+import re
+from .asm import REGISTER_OPS, IMMEDIATE_OPS, MULTIPLY_OPS, LOADS, STORES, with_particle
 
 ALU_INSTRUCTIONS = set(REGISTER_OPS) | set(IMMEDIATE_OPS) | MULTIPLY_OPS | set(LOADS) | set(STORES) | {'lui', 'auipc'}
 
@@ -41,6 +42,22 @@ def value_text(value):
     return str(value)
 
 
+def memory_operands(assembly):
+    """Names only; actual values always come from the stage, never registers."""
+    match = re.fullmatch(r'\s*(?:lb|lbu|lh|lhu|lw|sb|sh|sw)\s+(\w+)\s*,\s*-?(?:0[xX][\da-fA-F]+|\d+)\s*\(\s*(\w+)\s*\)\s*', assembly)
+    return match.groups() if match else (None, None)
+
+
+def offset_text(value):
+    try:
+        number = int(value, 0) if isinstance(value, str) else int(value)
+        if 0x80000000 <= number <= 0xFFFFFFFF:
+            number -= 1 << 32
+        return ('앞쪽으로' if number < 0 else '뒤쪽으로') + f' {abs(number)}바이트'
+    except (ValueError, TypeError):
+        return f'거리 {value_text(value)}바이트만큼'
+
+
 def instruction_observations(cycle, retired_pc, locations):
     stages = activity(cycle)
     observations = []
@@ -57,10 +74,10 @@ def instruction_observations(cycle, retired_pc, locations):
             taken = control.get('taken')
             if taken is True:
                 destination = control.get('target_pc')
-                summary = f"실제 판정은 분기·점프함이며 목적지는 {destination or '미제공'}입니다."
+                summary = f"다음에 실행할 명령어의 위치를 {destination or '미제공'} 주소로 바꿨습니다."
             elif taken is False:
                 destination = control.get('fallthrough_pc')
-                summary = f"실제 판정은 분기하지 않음이며 다음 위치는 {destination or '미제공'}입니다."
+                summary = f"조건이 맞지 않아 분기하지 않음: 바로 다음 명령어가 있는 {destination or '미제공'} 주소로 진행합니다."
             else:
                 destination = None
                 summary = '제어 명령어가 처리됐으며 분기 판정값은 제공되지 않았습니다.'
@@ -74,7 +91,8 @@ def instruction_observations(cycle, retired_pc, locations):
             continue
         if name == 'EX' and opcode in ALU_INSTRUCTIONS and all(stage.get(key) is not None for key in ('operand_1', 'operand_2', 'alu_result')):
             operands = f"{value_text(stage['operand_1'])}, {value_text(stage['operand_2'])}"
-            operation = stage.get('alu_operation')
+            operation = str(stage.get('alu_operation') or opcode).lower()
+            operation = IMMEDIATE_OPS.get(operation, operation)
             symbol = {'add': '+', 'sub': '-', 'and': '&', 'or': '|', 'xor': '^'}.get(operation)
             try:
                 shift_amount = int(str(stage['operand_2']), 0) & 31
@@ -85,16 +103,28 @@ def instruction_observations(cycle, retired_pc, locations):
                 summary = f"실제 입력 {value_text(stage['operand_1'])}을 {direction}으로 {shift_amount}비트 이동한 결과는 {value_text(stage['alu_result'])}입니다."
                 summary += ' 부호 비트로 빈자리를 채웁니다.' if opcode in ('sra', 'srai') else ' 빈자리는 0으로 채웁니다.'
             elif symbol:
-                summary = f"실제 계산은 {value_text(stage['operand_1'])} {symbol} {value_text(stage['operand_2'])} = {value_text(stage['alu_result'])}입니다."
+                first, second, result = (value_text(stage[key]) for key in ('operand_1', 'operand_2', 'alu_result'))
+                if operation in ('add', 'sub'):
+                    verb = '더했습니다' if operation == 'add' else '뺐습니다'
+                    summary = f"계산 장치(ALU)가 첫 번째 값 {first}{'에' if operation == 'add' else '에서'} 두 번째 값 {with_particle(second)} {verb}. 계산 결과는 {result}입니다."
+                else:
+                    rule = {'and': '둘 다 1인 자리', 'or': '하나라도 1인 자리', 'xor': '두 비트가 다른 자리'}[operation]
+                    summary = f"계산 장치(ALU)가 입력값 {first}, {second}을 비트별로 비교해 {rule}를 1로 만들었습니다. 결과는 {result}입니다."
             else:
-                summary = f"ALU {operation or '연산'}의 실제 입력은 {operands}이며 결과는 {value_text(stage['alu_result'])}입니다."
+                meaning = REGISTER_OPS.get(operation, ('', ''))[1] or {'mul': '곱셈', 'mulh': '곱셈 결과의 왼쪽 부분 구하기', 'mulhsu': '곱셈 결과의 왼쪽 부분 구하기', 'mulhu': '곱셈 결과의 왼쪽 부분 구하기', 'div': '나눗셈의 몫 구하기', 'divu': '나눗셈의 몫 구하기', 'rem': '나눗셈의 나머지 구하기', 'remu': '나눗셈의 나머지 구하기', 'lui': '큰 숫자 만들기', 'auipc': '현재 명령어 주소에 숫자 더하기'}.get(opcode, '명령어에 맞는 계산')
+                summary = f"계산 장치(ALU)가 {with_particle(meaning)} 수행합니다. 이번 입력값은 {operands}이고, 결과는 {value_text(stage['alu_result'])}입니다."
         elif name == 'MEM' and stage.get('memory_operation') in ('load', 'store') and stage.get('target_address') is not None:
             load = stage['memory_operation'] == 'load'
             value = stage.get('read_data' if load else 'write_data')
             if value is None:
                 continue
+            data_register, _ = memory_operands(str(stage.get('assembly', '')))
+            width = (LOADS.get(opcode) or (STORES.get(opcode),))[0]
+            size = f'{width // 8}바이트' if width else '데이터'
             if load:
-                summary = f"주소 {stage['target_address']}의 읽기 결과는 {value_text(value)}입니다."
+                summary = f"메모리의 {stage['target_address']}번 위치에서 {size}를 읽었습니다. 읽은 값은 {value_text(value)}입니다."
+                if data_register:
+                    summary += f' 이 값을 {data_register} 레지스터에 전달합니다.'
             else:
                 opcode = str(stage.get('assembly', '')).split(' ', 1)[0]
                 width = {'sb': 8, 'sh': 16, 'sw': 32}.get(opcode)
@@ -103,15 +133,20 @@ def instruction_observations(cycle, retired_pc, locations):
                         value = f'0x{int(value, 16) & ((1 << width) - 1):0{width // 4}X}'
                     except ValueError:
                         pass
-                summary = f"주소 {stage['target_address']}에 {value_text(value)}을 저장했습니다."
+                source = f'{data_register} 레지스터에서 가져온 ' if data_register else ''
+                summary = f"메모리의 {stage['target_address']}번 위치에 {source}값 {with_particle(value_text(value))} {size} 크기로 저장했습니다. 저장 위치의 내용이 바뀌며, 데이터를 준 레지스터의 값은 그대로입니다."
         elif name == 'WB' and retired_pc == address and stage.get('will_write_reg') is True and stage.get('final_write_data') is not None:
-            summary = f"{stage.get('destination_register') or '목적지 레지스터'}에 {value_text(stage['final_write_data'])}을 기록했습니다."
+            if stage.get('destination_register') in ('x0', 'zero'):
+                summary = '계산 결과를 x0에 쓰려는 동작은 버립니다. x0 레지스터의 값은 항상 0입니다.'
+            else:
+                summary = f"{stage.get('destination_register') or '결과를 받는'} 레지스터의 값을 {with_particle(value_text(stage['final_write_data']), '으로', '로')} 바꿨습니다. 이후 명령어는 이 새 값을 읽을 수 있습니다."
         else:
             continue
         opcode = str(stage.get('assembly', '')).split(' ', 1)[0]
         address_calculation = name == 'EX' and opcode in ('lb', 'lbu', 'lh', 'lhu', 'lw', 'sb', 'sh', 'sw')
         if address_calculation:
-            summary = f"기준 주소 {stage['operand_1']}에 오프셋 {stage['operand_2']}을 더해 접근 주소 {stage['alu_result']}을 계산했습니다."
+            _, base = memory_operands(str(stage.get('assembly', '')))
+            summary = f"{base or '기준'} 레지스터에 담긴 주소 {value_text(stage['operand_1'])}에서 {offset_text(stage['operand_2'])} 이동한 위치를 계산했습니다. 찾은 메모리 주소는 {value_text(stage['alu_result'])}입니다. 아직 데이터를 읽거나 쓴 단계는 아닙니다."
         observations.append({'pc': address, 'stage': name, 'summary': summary,
                              'kind': 'address' if address_calculation else 'value'})
     return observations
@@ -137,26 +172,38 @@ def execution_steps(result):
             if evidence.get(flag) is not True:
                 continue
             if kind == 'stall':
-                summary = evidence.get('stall_desc') or 'CORE가 현재 클록에서 스톨을 보고했습니다.'
-                detail = str(summary) + ' 소비 명령어의 진행이 지연됩니다. 이 이벤트 하나만으로 전체 스톨 횟수나 모든 해저드 종류를 확정하지 않습니다.'
+                reason = evidence.get('stall_reason')
+                summary = ('앞선 명령어가 메모리에서 가져올 값을 현재 명령어가 필요로 하지만, 아직 읽기가 끝나지 않았습니다.' if reason == 'load_use'
+                           else '앞선 명령어가 새 값을 레지스터에 넣을 때까지 현재 명령어가 기다립니다.' if reason == 'strict_dependency'
+                           else '현재 명령어에 필요한 값이나 실행 자원이 준비되지 않아 진행을 잠시 멈춥니다.')
+                detail = summary + ' 앞선 작업은 필요한 값이나 자원을 준비합니다. 대기 조건이 풀리면 멈춰 있던 명령어가 이어서 진행합니다.'
             elif kind == 'forwarding':
-                summary = evidence.get('forwarding_desc') or '레지스터 기록을 기다리지 않고 준비된 값을 피연산자 경로로 전달합니다.'
+                summary = '현재 명령어가 레지스터의 오래된 값 대신 앞선 명령어가 만든 새 값을 직접 받아 사용합니다.'
                 info = obj(evidence.get('forwarding_info'))
                 paths = [str(x) for x in info.get('forwarded_from', [])]
                 targets = [str(x) for x in info.get('target_register', [])]
-                detail = str(summary) + f" 전달 출발: {', '.join(paths) or '미제공'}. 대상 레지스터: {', '.join(targets) or '미제공'}. 피연산자 전달 수: {evidence.get('forwarded_operand_count', '미제공')}."
+                places = {'EX/MEM': '계산을 마친 결과를 보관하는 EX/MEM', 'MEM/WB': '레지스터에 넣을 결과를 보관하는 MEM/WB'}
+                detail = summary + (' 값을 가져온 곳: ' + ', '.join(places.get(path, path) for path in paths) + '.' if paths else '')
+                detail += (' 새 값이 필요한 레지스터: ' + ', '.join(targets) + '.' if targets else '')
+                detail += ' 결과가 레지스터에 저장될 때까지 기다리는 대신, 준비된 값을 계산 입력으로 바로 보냅니다.'
             elif kind == 'branch':
                 taken = evidence.get('taken')
                 summary = '실제로 분기/점프했습니다.' if taken is True else ('분기하지 않고 순차 실행했습니다.' if taken is False else '제어 명령어가 처리됐지만 taken 값은 제공되지 않았습니다.')
                 detail = f"{summary} 목적지: {evidence.get('target_pc') or '미제공'}, 순차 PC: {evidence.get('fallthrough_pc') or '미제공'}. C 조건의 참/거짓과 어셈블리 taken은 분기 방향에 따라 반대일 수 있습니다."
             else:
-                summary = evidence.get('message') or evidence.get('reason') or 'CORE가 실행 오류를 보고했습니다.'
+                summary = evidence.get('message') or evidence.get('reason') or '시뮬레이션 도중 실행 오류가 발생했습니다.'
                 detail = f"{summary} 오류 코드: {evidence.get('code') or '미제공'}, 단계: {evidence.get('stage') or '미제공'}. 실패한 명령어를 완료된 명령어로 세지 않습니다."
             explanations.append({'type': kind, 'title': title, 'summary': str(summary), 'detail': detail, 'evidence': deepcopy(evidence)})
         control = obj(events.get('control_hazard'))
         if control.get('has_flush') is True:
-            summary = '제어 흐름 변경으로 후속 명령어를 비웁니다.'
-            detail = f"비운 단계: {', '.join(str(x) for x in control.get('flushed_stages', [])) or '미제공'}. 이동 PC: {control.get('redirect_pc') or '미제공'}. 원인: {control.get('flush_reason') or '미제공'}. 분기 예측 실패로 단정하지 않습니다."
+            summary = '다음에 실행할 위치가 바뀌어, 이전 경로에서 미리 가져온 명령어를 취소합니다.'
+            detail = summary
+            flushed = control.get('flushed_stages', [])
+            if flushed:
+                detail += f" 취소한 명령어가 있던 단계: {', '.join(str(x) for x in flushed)}."
+            if control.get('redirect_pc'):
+                detail += f" 이제 {control['redirect_pc']} 주소에서 명령어를 가져옵니다."
+            detail += ' 취소한 명령어는 레지스터나 메모리를 바꾸지 못하게 하고, 실행표에서는 버블로 이어서 표시합니다.'
             explanations.append({'type': 'flush', 'title': '제어 흐름 변경 / 플러시', 'summary': summary, 'detail': detail, 'evidence': deepcopy(control)})
 
         count = obj(state.get('metrics')).get('accumulated_instructions')
