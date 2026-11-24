@@ -44,7 +44,7 @@ def test_increment_tokens_in_strings_are_not_executed_and_assignments_keep_their
 def test_standard_environment_instructions_do_not_claim_core_execution_support(text):
     result = explain_asm(text)
     assert result.supported is False and result.category == 'unsupported'
-    assert '현재 ArchReactor CORE에서는 실행을 지원하지 않습니다.' in result.summary
+    assert '현재 시뮬레이터에서는 실행을 지원하지 않습니다.' in result.summary
     assert explain_asm('ecall').supported is True
 
 
@@ -53,7 +53,7 @@ def test_srai_uses_encoded_shift_amount_instead_of_core_sign_extended_i_field():
     assert result.supported and result.opcode == 'srai'
     assert result.reads == ['x11'] and result.writes == ['x10']
     assert result.operands == 'x10, x11, 2'
-    assert '2비트' in result.summary and '명령어 구분 비트' in result.detail
+    assert '2비트' in result.summary and '실제로 비트를 옮기는 크기는 2칸' in result.detail
     assert '1026' not in result.operation
     assert explain_encoded_asm('srai a0, a1, 2', '0x4025D513').operands == 'a0, a1, 2'
     assert not explain_encoded_asm('srai a0, a1, 1026', '0x0025D513').supported
@@ -134,7 +134,8 @@ def test_jalr_pc_rules_and_auipc_whole_pc():
 
 def test_division_edge_semantics():
     result = explain_asm('div a0, a1, a2')
-    assert '0xFFFFFFFF' in result.detail and 'INT_MIN' in result.detail
+    assert '4294967295' in result.detail and '-2147483648' in result.detail
+    assert '0xFFFFFFFF' not in result.detail and 'INT_MIN' not in result.detail
     assert '0 방향' in result.detail
 
 
@@ -147,8 +148,9 @@ def test_invalid_operands_are_not_explained_as_valid(text):
 def test_unknown_instructions_and_runtime_do_not_guess():
     assert not explain_asm('ld a0, 0(sp)').supported
     result = explain(ExplainItem(kind='crt', text='auipc ra, 0', pc='0x10000'))
-    assert 'main 호출·초기화 여부' in result.detail
-    assert 'PC 0x10000' in result.detail
+    assert '앞뒤 명령어와 함수 이름' in result.detail
+    assert '시작 코드라고 판단할 수는 없습니다' in result.detail
+    assert '명령어가 저장된 주소: 0x10000' in result.detail
 
 
 @pytest.mark.parametrize('text', ['beq a0,a1,8', 'bne a0,a1,8', 'blt a0,a1,8', 'bge a0,a1,8', 'bltu a0,a1,8', 'bgeu a0,a1,8'])
@@ -156,7 +158,8 @@ def test_static_branch_never_claims_it_was_taken(text):
     result = explain_asm(text)
     assert result.control_flow['conditional'] is True
     assert result.writes == []
-    assert '실제 taken' in result.detail
+    assert '조건이 거짓이면' in result.summary
+    assert '로 이동했습니다' not in result.summary
 
 
 @pytest.mark.parametrize('alias,canonical', [

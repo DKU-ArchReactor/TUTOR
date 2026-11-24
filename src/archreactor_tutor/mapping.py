@@ -48,7 +48,7 @@ def source_mapping(source, result, steps, source_file=None):
             'explanation': explanation, 'runtime_explanation': None,
         }
         if not valid:
-            record['runtime_explanation'] = {**explanation, 'kind': 'crt', 'category': 'unmapped', 'title': '소스 위치를 확인할 수 없는 명령어', 'summary': '실행 환경 코드 또는 디버그 정보가 없는 사용자 코드일 수 있습니다.', 'detail': 'C 줄 매핑이 없다는 사실만으로 CRT·main 호출·초기화라고 단정하지 않습니다. ' + explanation['detail']}
+            record['runtime_explanation'] = {**explanation, 'kind': 'crt', 'category': 'unmapped', 'title': '특정 C 줄과 연결되지 않은 명령어', 'summary': '컴파일 결과에서 이 명령어와 특정 C 줄의 연결을 찾지 못했습니다. 명령어 자체의 동작은 설명할 수 있습니다.', 'detail': '프로그램 시작을 준비하는 코드일 수도 있고, C 소스의 위치 표시가 빠진 코드일 수도 있습니다. C 줄과 연결되지 않았다는 이유만으로 어느 쪽이라고 단정하지 않습니다.'}
         entries.append(record)
         if valid and number in lines:
             lines[number]['instructions'].append(record)

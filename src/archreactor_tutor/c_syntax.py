@@ -56,7 +56,7 @@ def explain_c(raw: str, *, cleaned: str | None = None) -> RuleExplanation:
             return out("comment", "주석", "실행 문법이 없는 주석 구간입니다.", "전체 소스의 주석 문맥으로 판정했습니다. C 문자열 안의 // 또는 /*는 주석으로 지우지 않습니다.")
         return out("empty", "빈 줄", "실행할 구문이 없습니다.", "빈 줄 자체는 CPU 명령어를 만들지 않습니다.")
     if line.startswith(("//", "/*")):
-        return out("comment", "주석", "개발자를 위한 설명입니다.", "한 줄만 받은 경우 여러 줄 주석의 끝을 확정할 수 없습니다.")
+        return out("comment", "주석", "사람이 코드를 읽을 때 참고하는 설명입니다.", "주석은 CPU가 실행하지 않습니다. 여러 줄 주석은 /*로 시작해서 */로 끝납니다.")
     if line.startswith("#"):
         directive = line[1:].lstrip().split(None, 1)[0] if line[1:].strip() else ""
         detail = {"include": "헤더의 선언·매크로를 전처리 입력에 포함합니다. 헤더 포함만으로 라이브러리 구현이 링크되는 것은 아닙니다.", "define": "매크로 치환 규칙을 정의합니다. 일반 변수 저장 명령어로 보지 않습니다.", "if": "컴파일할 소스 구간을 전처리 조건으로 선택합니다. 실행 중 CPU 분기와는 다릅니다.", "ifdef": "매크로 정의 여부에 따라 컴파일할 구간을 선택합니다.", "endif": "조건부 전처리 구간을 닫습니다."}.get(directive, "소스 전처리 구간을 지정합니다. 일반 CPU 명령어로 직접 실행하지 않습니다.")
@@ -65,15 +65,15 @@ def explain_c(raw: str, *, cleaned: str | None = None) -> RuleExplanation:
     if re.match(r"^typedef\b", line):
         return out("typedef", "타입 별칭", "기존 타입에 사용할 새 이름을 선언합니다.", "타입 별칭 자체는 실행 중 값을 저장하는 변수가 아닙니다.")
     if re.match(r"^(struct|union|enum)\s+\w*\s*\{", line):
-        return out("type_definition", "복합 타입 정의", "구조체·공용체·열거형의 구성을 선언합니다.", "필드 배치·크기·정렬은 타입과 ABI에 따릅니다. 이 줄만으로 메모리가 할당됐다고 단정하지 않습니다.")
+        return out("type_definition", "복합 타입 정의", "여러 값을 묶거나 이름을 붙일 새로운 데이터 종류를 정의합니다.", "실제로 메모리에 몇 바이트를 차지하고 어떤 순서로 놓일지는 자료형과 CPU·컴파일러의 규칙에 따라 정해집니다. 데이터 종류를 정의하는 것과 실제 변수를 만들어 저장 공간을 잡는 것은 다릅니다.")
     function = re.match(rf"^{TYPES}\s*\**\s*([A-Za-z_]\w*)\s*\([^;]*\)\s*([;{{]?)", line)
     if function:
         name = function[1]
         declaration = line.endswith(";")
-        return out("function", "함수 선언" if declaration else "함수 정의/헤더", f"'{name}' 함수의 {'인터페이스를 선언' if declaration else '반환 타입과 매개변수를 정의'}합니다.", "정수 인자는 보통 a0~a7로 전달하고 정수 반환값은 보통 a0에 놓습니다. 실제 스택 프레임·ra 보존은 호출 구조·ABI·최적화에 따라 달라집니다. 생성된 명령어를 확인하세요.")
+        return out("function", "함수 선언" if declaration else "함수 정의/헤더", f"'{name}' 함수가 {'어떤 입력을 받고 어떤 값을 돌려주는지 알립니다' if declaration else '받을 입력과 돌려줄 값의 종류를 정합니다'}.", "함수를 부를 때 정수 입력은 보통 a0부터 a7 레지스터에 담고, 결과는 보통 a0에 담아 돌려줍니다. 함수 안에서 값을 잠시 보관하거나 돌아올 주소를 기억하기 위한 명령어가 추가될 수 있습니다.")
     if re.match(r"^return\b", line):
         expression = line[6:].split(";", 1)[0].strip()
-        return out("return", "함수 반환", f"'{expression}'을 반환합니다." if expression else "값 없이 호출자로 복귀합니다.", "RV32 정수 반환값은 보통 a0를 사용합니다. main의 복귀는 프로그램 시작 코드로 돌아가는 것이며, 종료 ecall과 동일한 C 구문은 아닙니다. 함수 인라인·최적화에 따라 명령어가 달라질 수 있습니다.")
+        return out("return", "함수 반환", f"'{expression}'의 값을 함수를 부른 쪽에 돌려줍니다." if expression else "값을 돌려주지 않고 함수를 부른 곳으로 돌아갑니다.", "정수 결과는 보통 a0 레지스터에 담습니다. return은 함수를 끝내고 부른 곳으로 돌아가는 C 문법입니다. main에서 돌아간 뒤의 프로그램 종료는 실행을 시작해 준 코드가 처리하며, return 자체가 종료 요청 명령어 ecall인 것은 아닙니다.")
     patterns = [
         (r"^else\s+if\s*\(", "else_if", "추가 조건", "앞선 조건이 거짓인 경로에서 새 조건을 평가합니다."),
         (r"^if\s*\(", "if", "조건 분기", "조건이 0인지 아닌지에 따라 실행 경로를 선택합니다."),
@@ -121,7 +121,7 @@ def explain_c(raw: str, *, cleaned: str | None = None) -> RuleExplanation:
             return out(category, "함수 포인터 선언", f"'{function_pointer[1]}'은 함수를 가리키는 포인터입니다.", "함수 자체의 선언과 구분합니다. 선언만으로 함수를 호출하지 않으며, 실제 호출 대상과 인자는 호출 지점의 명령어와 실행 이력을 확인합니다.")
         title = "배열 선언" if array else ("포인터 선언" if pointer else ("변수 초기화" if category == "initialization" else "변수 선언"))
         if array:
-            detail = "같은 타입의 원소들을 연속해서 저장하는 배열을 선언합니다. 원소 접근 명령어에서는 기준 주소와 원소 크기에 따른 오프셋을 확인할 수 있습니다."
+            detail = "배열은 같은 종류의 값을 메모리에 나란히 저장합니다. 원소 하나가 4바이트라면 다음 원소의 주소는 4만큼 커집니다. 원소를 읽는 명령어는 배열의 시작 주소와 이동할 거리를 이용합니다."
         elif pointer:
             detail = "주소를 저장하는 포인터를 선언합니다. 포인터 값의 저장과, 그 주소를 통해 데이터를 읽거나 쓰는 동작을 구분해서 확인하세요."
         elif category == 'initialization':
@@ -139,12 +139,12 @@ def explain_c(raw: str, *, cleaned: str | None = None) -> RuleExplanation:
 
     syntax = re.sub(r'"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\'', '""', line)
     if re.search(r"(?:\+=|-=|\*=|/=|%=|<<=|>>=|&=|\|=|\^=|(?<![=!<>])=(?!=))", syntax):
-        return out("assignment", "대입/계산", "계산한 값을 왼쪽 대상에 반영합니다.", "왼쪽 대상은 변수·배열 원소·포인터 역참조일 수 있습니다. 모든 대입이 반드시 메모리 store를 만드는 것은 아닙니다. /와 %의 C 정의되지 않은 동작은 RV32M 하드웨어의 특수 결과와 구분해야 합니다.")
+        return out("assignment", "대입/계산", "계산한 값을 왼쪽에 적힌 곳에 넣습니다.", "값을 넣는 곳은 변수, 배열의 원소, 또는 포인터가 가리키는 메모리 위치일 수 있습니다. 값이 레지스터에만 보관되는 경우도 있으므로 대입문마다 메모리 저장 명령어가 생기는 것은 아닙니다. C에서 0으로 나누는 등의 잘못된 계산은 CPU 명령어의 특수 결과를 기대해서는 안 됩니다.")
     if re.match(r"^(?:\+\+|--)", syntax) or re.search(r"(?:\+\+|--)\s*;", syntax):
         return out("increment", "증가/감소", "값을 1 증가 또는 감소시킵니다.", "전위와 후위는 표현식이 돌려주는 값이 다릅니다. 결과가 사용되는지에 따라 생성되는 명령어가 달라집니다.")
     call = re.match(r"^([A-Za-z_]\w*)\s*\(", line)
     if call:
-        return out("call", "함수 호출", f"'{call[1]}' 함수를 호출합니다.", "a0~a7와 필요시 스택으로 인자를 전달할 수 있습니다. 인라인·꼬리 호출 최적화 때문에 call/ret이 없을 수도 있습니다.")
+        return out("call", "함수 호출", f"'{call[1]}' 함수로 일을 맡깁니다.", "함수에 건넬 값은 보통 a0부터 a7 레지스터에 담고, 더 필요하면 메모리의 스택 공간을 사용합니다. 컴파일러가 함수의 코드를 직접 이 자리에 넣는 등 실행 방법을 바꾸면, 함수로 이동하는 명령어가 보이지 않을 수도 있습니다.")
     if line in ("{", "}", "};"):
         return out("scope", "블록 경계", "블록 범위를 열거나 닫습니다.", "중괄호만으로 스택 할당·해제나 함수 복귀를 확정할 수 없습니다.")
-    return out("statement", "문맥 확인 필요", "C 소스의 구문 일부입니다.", "이 해설은 보수적인 구문 힌트입니다. 여러 줄 선언·매크로 확장·여러 구문이 섞인 줄의 전체 의미를 C 파서처럼 확정하지 않습니다.")
+    return out("statement", "앞뒤 코드와 함께 읽을 부분", "이 줄은 C 코드의 일부입니다.", "한 줄만으로는 전체 뜻을 정하기 어려울 수 있습니다. 여러 줄에 걸친 문장이라면 앞뒤 줄을 함께 읽어 주세요.")

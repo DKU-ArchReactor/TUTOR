@@ -22,3 +22,13 @@ def test_environment_call_describes_the_request_without_assuming_an_abi():
     assert '서비스' in result.summary
     assert '규약' in result.detail
     assert 'RISC-V ISA 자체가 a7=10을 종료로 정의하지 않습니다' in result.detail
+
+
+@pytest.mark.parametrize('instruction', INSTRUCTIONS)
+def test_supported_base_instructions_explain_a_readable_sequence(instruction):
+    from archreactor_tutor.narrative import instruction_context
+    explanation = explain_asm(instruction).model_dump()
+    teaching = instruction_context({'explanation': explanation}, {})
+    assert len(teaching['walkthrough']) == (3 if explanation['supported'] else 0)
+    assert all(step['title'] and step['text'] for step in teaching['walkthrough'])
+    assert not any(step['text'] == explanation['title'] + ' 연산을 수행합니다.' for step in teaching['walkthrough'])
