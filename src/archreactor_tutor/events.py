@@ -65,7 +65,9 @@ def instruction_observations(cycle, retired_pc, locations):
         stage = stages[name]
         opcode = str(stage.get('assembly', '')).split(' ', 1)[0].lower()
         address = pc(stage.get('pc'))
-        if (not address or stage.get('status') in ('empty', 'bubble', 'flushed', 'error', 'stall', 'stalled')
+        error = obj(obj(cycle.get('cycle_events')).get('runtime_error'))
+        if (not address or stage.get('status') in ('empty', 'bubble', 'flush', 'flushed', 'error', 'stall', 'stalled')
+                or (error.get('has_error') is True and error.get('stage') == name)
                 or obj(stage.get('flush_info')).get('is_flushed')):
             continue
         control = obj(obj(cycle.get('cycle_events')).get('control_hazard'))
@@ -128,10 +130,11 @@ def instruction_observations(cycle, retired_pc, locations):
             else:
                 opcode = str(stage.get('assembly', '')).split(' ', 1)[0]
                 width = {'sb': 8, 'sh': 16, 'sw': 32}.get(opcode)
-                if width and isinstance(value, str) and value.lower().startswith('0x'):
+                if width:
                     try:
-                        value = f'0x{int(value, 16) & ((1 << width) - 1):0{width // 4}X}'
-                    except ValueError:
+                        number = int(value, 0) if isinstance(value, str) else int(value)
+                        value = f'0x{number & ((1 << width) - 1):0{width // 4}X}'
+                    except (ValueError, TypeError):
                         pass
                 source = f'{data_register} 레지스터에서 가져온 ' if data_register else ''
                 summary = f"메모리의 {stage['target_address']}번 위치에 {source}값 {with_particle(value_text(value))} {size} 크기로 저장했습니다. 저장 위치의 내용이 바뀌며, 데이터를 준 레지스터의 값은 그대로입니다."
@@ -209,11 +212,22 @@ def execution_steps(result):
         count = obj(state.get('metrics')).get('accumulated_instructions')
         delta = count - previous_retired if type(count) is int and type(previous_retired) is int else None
         wb = stages['WB']
-        retired_pc = pc(wb.get('pc')) if delta == 1 and not obj(wb.get('flush_info')).get('is_flushed') and wb.get('status') not in ('error', 'empty', 'bubble', 'flushed') else None
+        error = obj(events.get('runtime_error'))
+        inactive = ('error', 'empty', 'bubble', 'flush', 'flushed', 'stall', 'stalled')
+        retired_pc = pc(wb.get('pc')) if delta == 1 and not obj(wb.get('flush_info')).get('is_flushed') and wb.get('status') not in inactive and not (error.get('has_error') is True and error.get('stage') == 'WB') else None
         memory = stages['MEM']
         transfer = None
-        if memory.get('memory_operation') in ('load', 'store') and memory.get('target_address') and memory.get('status') != 'error' and not obj(memory.get('flush_info')).get('is_flushed'):
+        if memory.get('memory_operation') in ('load', 'store') and memory.get('target_address') is not None and memory.get('status') not in inactive and not obj(memory.get('flush_info')).get('is_flushed') and not (error.get('has_error') is True and error.get('stage') == 'MEM'):
             transfer = {key: deepcopy(memory.get(key)) for key in ('memory_operation', 'target_address', 'read_data', 'write_data', 'pc', 'assembly')}
+            if transfer['memory_operation'] == 'store':
+                width = STORES.get(str(memory.get('assembly', '')).split(' ', 1)[0])
+                try:
+                    value = transfer['write_data']
+                    number = int(value, 0) if isinstance(value, str) else int(value)
+                    if width and number != (number & ((1 << width) - 1)):
+                        transfer['write_data'] = str(number & ((1 << width) - 1))
+                except (ValueError, TypeError):
+                    pass
         output.append({
             'history_index': index, 'cycle': cycle.get('clock'), 'display_clock': index + 1,
             'events': explanations, 'retired_pc': retired_pc, 'retired_delta': delta,
