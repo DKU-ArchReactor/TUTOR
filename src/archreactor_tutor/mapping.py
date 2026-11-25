@@ -17,6 +17,7 @@ def source_mapping(source, result, steps, source_file=None):
     retire_counts = Counter(step['retired_pc'] for step in steps if step['retired_pc'])
     observed = {stage['pc'] for step in steps for stage in step['stages'] if stage['pc']}
     source_lines = source.splitlines()
+    selected_file = source_file or 'source.c'
     lines = {number: {'source_line': number, 'text': text, 'instructions': [], 'retire_count': 0} for number, text in enumerate(source_lines, 1)}
     entries, warnings = [], []
     if not mapping:
@@ -31,7 +32,7 @@ def source_mapping(source, result, steps, source_file=None):
         file_name = entry.get('source_file') or entry.get('file')
         valid = type(number) is int and number > 0
         reason = None
-        if source_file and isinstance(file_name, str) and file_name.replace('\\', '/').split('/')[-1] != source_file.replace('\\', '/').split('/')[-1]:
+        if selected_file and isinstance(file_name, str) and file_name.replace('\\', '/').split('/')[-1] != selected_file.replace('\\', '/').split('/')[-1]:
             valid, reason = False, 'different_source_file'
         elif valid and source_lines and number > len(source_lines):
             valid, reason = False, 'source_line_out_of_range'
@@ -42,6 +43,7 @@ def source_mapping(source, result, steps, source_file=None):
             'pc': address, 'raw_instruction': entry.get('raw_instruction'), 'text': entry['assembly'],
             'source_line': number if valid else None, 'reported_source_line': number,
             'source_file': file_name, 'source_column': entry.get('source_column'),
+            'external_source_line': entry.get('external_source_line'),
             'function': entry.get('function'), 'mapping_status': 'mapped' if valid else 'unmapped',
             'unmapped_reason': reason, 'mapping_basis': basis if valid else 'none',
             'retire_count': retire_counts[address], 'observed_in_history': address in observed,
@@ -49,6 +51,15 @@ def source_mapping(source, result, steps, source_file=None):
         }
         if not valid:
             record['runtime_explanation'] = {**explanation, 'kind': 'crt', 'category': 'unmapped', 'title': '특정 C 줄과 연결되지 않은 명령어', 'summary': '컴파일 결과에서 이 명령어와 특정 C 줄의 연결을 찾지 못했습니다. 명령어 자체의 동작은 설명할 수 있습니다.', 'detail': '프로그램 시작을 준비하는 코드일 수도 있고, C 소스의 위치 표시가 빠진 코드일 수도 있습니다. C 줄과 연결되지 않았다는 이유만으로 어느 쪽이라고 단정하지 않습니다.'}
+        # File evidence describes origin; absent line info never proves CRT.
+        base_name = file_name.replace('\\', '/').split('/')[-1] if isinstance(file_name, str) else None
+        record['source_context'] = 'user_source' if valid else 'startup_source' if base_name == 'start.S' else 'external_source' if reason == 'different_source_file' else 'unknown'
+        if record['source_context'] == 'startup_source':
+            record['runtime_explanation'].update({
+                'title': '프로그램 시작 코드',
+                'summary': '프로그램 시작에 사용하는 start.S 파일의 명령어입니다. 작성한 C 줄과는 직접 연결되지 않습니다.',
+                'detail': '시작 파일에 있다는 사실과 이 명령어가 하는 일은 구분해서 읽으세요. ' + explanation['detail'],
+            })
         entries.append(record)
         if valid and number in lines:
             lines[number]['instructions'].append(record)

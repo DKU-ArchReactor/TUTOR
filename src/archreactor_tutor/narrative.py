@@ -45,12 +45,13 @@ def instruction_walkthrough(explanation, parts):
     if op in ('lui', 'auipc') and len(parts) == 2:
         try:
             number = int(parts[1], 0)
-            calculation = f'명령어의 숫자 {number}에 4096을 곱합니다. 이 명령어에서 준비하는 값은 {number * 4096}입니다.'
+            prepared = (number * 4096) & 0xFFFFFFFF
+            calculation = f'명령어의 숫자 {number}에 4096을 곱하고, 레지스터에 들어가는 32비트만 남깁니다. 준비한 값을 0 이상의 정수로 읽으면 {prepared}입니다.'
         except ValueError:
             calculation = '프로그램을 만들 때 이 이름에 대응하는 숫자가 정해집니다. 숫자가 정해지면 4096을 곱해 계산에 사용할 값을 준비합니다.'
         return [{'title': '어떤 숫자를 사용하나요?', 'text': f'명령어에 적힌 숫자 {with_particle(parts[1])} 사용합니다.'},
                 {'title': '계산에 쓸 값을 어떻게 준비하나요?', 'text': calculation},
-                {'title': '무엇을 저장하나요?', 'text': f"{'만든 숫자를 현재 명령어의 주소에 더한 결과' if op == 'auipc' else '만든 숫자'}를 {parts[0]}에 저장합니다."}]
+                {'title': '무엇을 저장하나요?', 'text': '목적지가 항상 0인 x0이므로 계산 결과를 보관하지 않습니다.' if register(parts[0]) == 'x0' else f"{'만든 숫자를 현재 명령어의 주소에 더한 결과에서 32비트만 남긴 값' if op == 'auipc' else '만든 숫자'}를 {parts[0]}에 저장합니다."}]
     if op == 'ecall':
         return [{'title': '누구에게 부탁하나요?', 'text': 'CPU가 실행 환경에 처리를 맡깁니다. 계산이나 메모리 복사 명령어가 아닙니다.'},
                 {'title': '무엇을 부탁하나요?', 'text': '출력이나 프로그램 종료 같은 서비스입니다. 어떤 서비스를 고를지는 실행 환경의 약속으로 정합니다.'},
