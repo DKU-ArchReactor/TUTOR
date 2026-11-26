@@ -155,7 +155,7 @@ def explain_asm(raw: str) -> RuleExplanation:
                 notes = ('입력을 음수 없이 읽는 정수 나눗셈입니다. 몫의 소수 부분은 버립니다.' if unsigned else '입력을 음수가 될 수 있는 숫자로 읽고 나눕니다. 음수의 몫도 소수 부분은 0 방향으로 버립니다. 예를 들어 -7을 3으로 나누면 몫은 -2, 나머지는 -1입니다.',
                          "CPU 명령어에서 0으로 나누면, 몫은 음수를 허용하는 명령어에서는 -1이고 음수 없이 읽는 명령어에서는 4294967295입니다. 나머지는 나누기 전 첫 번째 값 그대로입니다. C에서 0으로 나누는 코드에도 이 결과를 기대해선 안 됩니다.",
                          "음수를 허용하는 명령어에서 가장 작은 수 -2147483648을 -1로 나누면, 양수 결과가 범위를 넘으므로 몫은 -2147483648, 나머지는 0이 됩니다.")
-            summary = (f"{rs1}와 {rhs}에 든 값을 곱해 결과의 {'왼쪽' if op.startswith('mulh') else '오른쪽'} 32비트를 {rd}에 저장합니다." if op.startswith('mul') else f"{rs1}에 든 값을 {rhs}에 든 값으로 나눈 {'몫' if op.startswith('div') else '나머지'}를 {rd}에 저장합니다. 두 입력은 {'음수 없는 숫자' if op.endswith('u') else '음수가 될 수 있는 숫자'}로 읽습니다.")
+            summary = (f"{rs1}와 {rhs}에 든 값을 곱해 결과의 {'왼쪽' if op.startswith('mulh') else '오른쪽'} 32비트를 {rd}에 저장합니다." if op.startswith('mul') else f"{rs1}에 든 값을 {rhs}에 든 값으로 나눈 {'몫을' if op.startswith('div') else '나머지를'} {rd}에 저장합니다. 두 입력은 {'음수 없는 숫자' if op.endswith('u') else '음수가 될 수 있는 숫자'}로 읽습니다.")
             return finish("arithmetic", "RV32M 곱셈·나눗셈", summary, operation, notes)
         base = IMMEDIATE_OPS.get(op, op)
         symbol, title = REGISTER_OPS[base]

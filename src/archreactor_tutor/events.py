@@ -188,7 +188,9 @@ def execution_steps(result):
                 places = {'EX/MEM': '계산을 마친 결과를 보관하는 EX/MEM', 'MEM/WB': '레지스터에 넣을 결과를 보관하는 MEM/WB'}
                 detail = summary + (' 값을 가져온 곳: ' + ', '.join(places.get(path, path) for path in paths) + '.' if paths else '')
                 detail += (' 새 값이 필요한 레지스터: ' + ', '.join(targets) + '.' if targets else '')
-                detail += ' 결과가 레지스터에 저장될 때까지 기다리는 대신, 준비된 값을 계산 입력으로 바로 보냅니다.'
+                detail += ' 준비된 새 값을 바로 사용하므로, 앞선 명령어가 레지스터에 결과를 저장할 때까지 기다리지 않습니다.'
+                if str(evidence.get('assembly', '')).split(' ', 1)[0] in ('sb', 'sh', 'sw'):
+                    detail += ' 이 저장 명령어에서는 주소 계산에 필요한 값이나 메모리에 저장할 데이터를 전달받습니다.'
             elif kind == 'branch':
                 taken = evidence.get('taken')
                 summary = '실제로 분기/점프했습니다.' if taken is True else ('분기하지 않고 순차 실행했습니다.' if taken is False else '제어 명령어가 처리됐지만 taken 값은 제공되지 않았습니다.')

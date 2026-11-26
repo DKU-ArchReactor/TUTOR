@@ -88,6 +88,11 @@ def performance_analysis(result, steps, instructions):
             reason = evidence.get('stall_reason') if kind == 'stall' else evidence.get('flush_reason') if kind == 'flush' else None
             related = dependencies(stage, stages, locations) if kind == 'stall' and matched and name == 'ID' and reason in ('load_use', 'data_hazard', 'raw_dependency') else []
             if kind == 'stall':
+                blocking = [item for item in related if item['stage'] == 'EX' and
+                            semantics(stages['EX'], locations).get('category') == 'load']
+                if reason == 'load_use' and blocking:
+                    names = ', '.join(item['register'] for item in blocking)
+                    event['summary'] = f"바로 앞의 메모리 읽기 명령어가 아직 {names}에 넣을 값을 준비하지 못해, 이 값을 사용하는 명령어가 한 클록 기다립니다."
                 event['title'] = 'Load-Use 데이터 의존성' if reason == 'load_use' else '명령어 진행 대기'
                 event['detail'] = event['summary']
                 if actor['pc']:
@@ -98,6 +103,12 @@ def performance_analysis(result, steps, instructions):
             elif kind == 'flush' and actor['pc']:
                 event['detail'] += f" 제어 명령어: PC {actor['pc']} · {actor['assembly']}."
             elif kind == 'forwarding' and actor['pc']:
+                assembly = actor['assembly'].replace(',', ' ').split()
+                if assembly and assembly[0] in ('sb', 'sh', 'sw') and len(assembly) == 3:
+                    stored = register(assembly[1])
+                    targets = obj(evidence.get('forwarding_info')).get('target_register', [])
+                    if stored in {register(str(value)) for value in targets}:
+                        event['detail'] += f" 전달받은 {assembly[1]}의 새 값을 메모리에 저장할 데이터로 사용합니다. 저장할 주소는 괄호 안 레지스터의 값에 바이트 거리를 더해 구합니다."
                 event['detail'] += f" 값을 전달받은 명령어: PC {actor['pc']} · {actor['assembly']}."
             event['instruction'] = actor
             event['dependencies'] = related
