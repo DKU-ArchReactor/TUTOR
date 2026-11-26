@@ -41,6 +41,21 @@ def test_stall_is_attached_to_consumer_and_nearest_register_writer():
     assert [(item['register'], item['stage'], item['pc']) for item in record['dependencies']] == [('x5', 'EX', '0x00010000')]
     assert 'lw t0,0(sp)' in record['detail'] and 'x5' in record['detail']
     assert tutor['cycle_explanations'][0]['events'][0]['detail'] == record['detail']
+    assert 'x5' in tutor['cycle_explanations'][0]['events'][0]['summary']
+    assert '한 클록' in tutor['cycle_explanations'][0]['events'][0]['summary']
+
+
+def test_store_forwarding_explains_data_separately_from_address():
+    raw = result([frame(0, 0, forward=True)])
+    cycle = raw['history'][0]
+    cycle['stage_activity']['EX']['assembly'] = 'sw t0,4(sp)'
+    event = cycle['cycle_events']['forwarding']
+    event['assembly'] = 'sw t0,4(sp)'
+    event['forwarding_info'] = {'target_register': ['t0'], 'forwarded_from': ['EX/MEM']}
+    raw['program']['code_mapping']['0x10000']['assembly'] = 'sw t0,4(sp)'
+    detail = simulation_explanations(raw)['performance_analysis']['records'][0]['detail']
+    assert '메모리에 저장할 데이터' in detail
+    assert '계산 입력으로 바로' not in detail
 
 
 def test_generic_stall_does_not_claim_load_use_or_assign_a_data_cause():
